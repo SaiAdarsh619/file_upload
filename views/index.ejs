@@ -126,7 +126,8 @@
 
         <form id="uploadForm">
             <label for="file">Select file</label>
-            <input type="file" name="file" id="file" required>
+            <input type="file" name="file" id="file" multiple>
+            <input type="file" name="folder" id="folder" webkitdirectory multiple>
             <button type="submit">Upload</button>
         </form>
 
@@ -145,12 +146,25 @@
     uploadForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const fileInput = document.getElementById('file');
-        const file = fileInput.files[0];
+        const folderInput = document.getElementById('folder');
+        const files = fileInput.files;
+        const folderFiles = folderInput.files;
+        console.log(folderFiles);
+        
 
-        if (!file) return;
+        if (!files) return;
 
         const formData = new FormData();
-        formData.append('file', file);
+        for (const file of files) {
+            formData.append('files', file);
+        }
+
+        for(const file of folderFiles)
+        {
+            formData.append('files', file, file.webkitRelativePath);
+        }
+
+        console.log(formData.getAll('files'));
 
         try {
             const response = await fetch('/upload', {

@@ -1,0 +1,137 @@
+body {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 800px;
+    margin: 40px auto;
+    padding: 20px;
+    background: #f5f5f5;
+}
+
+.container {
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+h1 {
+    margin-bottom: 24px;
+    font-size: 24px;
+    color: #333;
+}
+
+form {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #333;
+}
+
+input[type="file"] {
+    margin-bottom: 16px;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+button {
+    background: #0066cc;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+button:hover {
+    background: #0052a3;
+}
+
+button.danger {
+    background: #dc3545;
+}
+
+button.danger:hover {
+    background: #c82333;
+}
+
+button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+h2 {
+    margin-top: 30px;
+    margin-bottom: 16px;
+    font-size: 18px;
+    color: #333;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.filelist {
+    list-style: none;
+    margin-top: 20px;
+}
+
+.fileitem {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    margin-bottom: 8px;
+    background: #f9f9f9;
+    border-left: 3px solid #0066cc;
+    border-radius: 4px;
+}
+
+.fileitem input[type="checkbox"] {
+    margin-right: 15px;
+    width: 18px;
+    height: 18px;
+}
+
+.fileinfo {
+    flex-grow: 1;
+}
+
+.fileitem a {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+.fileitem a:hover {
+    text-decoration: underline;
+}
+
+.fileitem button {
+    background: #dc3545;
+    padding: 6px 12px;
+    font-size: 12px;
+    flex-shrink: 0;
+    margin-left: 10px;
+}
+
+.error {
+    color: #dc3545;
+    padding: 10px;
+    background: #f8d7da;
+    border-radius: 4px;
+    margin-bottom: 16px;
+}
+
+.action-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
