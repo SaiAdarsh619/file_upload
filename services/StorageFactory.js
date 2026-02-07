@@ -1,6 +1,5 @@
 import LocalStorageProvider from './LocalStorageProvider.js';
 import AzureBlobStorageProvider from './AzureBlobStorageProvider.js';
-import MulterAzureStorageProvider from './multer_azure.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -10,8 +9,8 @@ class StorageFactory {
         console.log(`Using Storage Provider: ${provider}`);
 
         if (provider.toLowerCase() === 'azure') {
-            // return new AzureBlobStorageProvider();
-            return new MulterAzureStorageProvider();
+            return new AzureBlobStorageProvider();
+            // return new MulterAzureStorageProvider();
         } else {
             return new LocalStorageProvider();
         }
