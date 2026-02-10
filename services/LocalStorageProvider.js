@@ -2,12 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
 import archiver from 'archiver';
-import dotenv from 'dotenv';
-dotenv.config();
+import { fileURLToPath } from 'url';
 
-const uploadsDir = path.resolve(
-    process.env.UPLOAD_DIR || 'uploads'
-);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Move up one level to get to root
+const rootDir = path.join(__dirname, '..');
+const uploadsDir = path.join(rootDir, 'uploads');
 
 // Ensure uploads directory exists
 if (!fs.existsSync(uploadsDir)) {
@@ -15,7 +15,7 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 export default class LocalStorageProvider {
-constructor() {
+    constructor() {
         console.log('Initialized Local Storage Provider');
         
         // LOCAL STORAGE MULTER CONFIG
@@ -55,7 +55,7 @@ constructor() {
                     }
                 }
 
-                const finalDir = path.join(baseUploadDir, mappedFolder);
+                const finalDir = mappedFolder === '.' ? baseUploadDir : path.join(baseUploadDir, mappedFolder);
                 console.log('Final directory:', finalDir);
                 
                 // Verify the resolved path is still within baseUploadDir (security check)
@@ -86,7 +86,7 @@ constructor() {
         this.upload = multer({ preservePath: true, storage: this.storage });
     }
 
-  /**
+    /**
      * Get unique filename like name(1).ext if exists (synchronous version for multer)
      * Checks for duplicates in the specified directory
      * @param {string} originalName 
@@ -106,23 +106,22 @@ constructor() {
     }
 
     /**
-     * Get unique folder name like name(1) if exists (synchronous version)
-     * @param {string} originalName
+     * Get unique folder name like folder(1) if exists (synchronous version for multer)
+     * Only checks at uploads root level
+     * @param {string} folderName 
      */
-    getAvailableFoldernameSync(originalName) {
-        let name = originalName;
-        let base = name;
+    getAvailableFoldernameSync(folderName) {
+        let name = folderName;
         let counter = 1;
 
         while (fs.existsSync(path.join(uploadsDir, name))) {
-            name = `${base}(${counter})`;
+            name = `${folderName}(${counter})`;
             counter++;
         }
         return name;
     }
-
-    /**
-     * Get unique filename like name(1).ext if exists (async version)
+    
+    /* Get unique filename like name(1).ext if exists (async version)
      * @param {string} originalName 
      */
     async getAvailableFilename(originalName) {
@@ -163,13 +162,30 @@ constructor() {
     }
 
     /**
-     * List all files and folders in storage
+     * List all files and folders in storage with metadata
      */
     async list() {
         try {
-            const files = await fs.promises.readdir(uploadsDir);
-            //console.log(files);
-            return files;
+            const files = await fs.promises.readdir(uploadsDir, { withFileTypes: true });
+            const items = [];
+
+            for (const file of files) {
+                const filePath = path.join(uploadsDir, file.name);
+                const stats = await fs.promises.stat(filePath);
+
+                items.push({
+                    name: file.name,
+                    isFolder: file.isDirectory(),
+                    size: stats.size,
+                    sizeFormatted: this.formatFileSize(stats.size),
+                    type: file.isDirectory() ? 'folder' : this.getFileType(file.name),
+                    modified: stats.mtime,
+                    modifiedFormatted: this.formatDate(stats.mtime)
+                });
+            }
+
+            console.log('Listed items:', items);
+            return items;
         } catch (error) {
             console.error('Error reading directory:', error.message);
             return [];
@@ -177,40 +193,92 @@ constructor() {
     }
 
     /**
-     * Download a file or folder as zip
-     * @param {string} filename - The filename or folder name
-     * @param {object} res - Express response object
+     * Format file size in human-readable format
      */
-    downloadFile(filename, res) {
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    /**
+     * Get file type from extension
+     */
+    getFileType(filename) {
+        const ext = path.extname(filename).toLowerCase().slice(1);
+        if (!ext) return 'unknown';
+        
+        const typeMap = {
+            'pdf': 'PDF',
+            'doc': 'Word', 'docx': 'Word',
+            'xls': 'Excel', 'xlsx': 'Excel',
+            'ppt': 'PowerPoint', 'pptx': 'PowerPoint',
+            'txt': 'Text',
+            'zip': 'Archive', 'rar': 'Archive', '7z': 'Archive',
+            'jpg': 'Image', 'jpeg': 'Image', 'png': 'Image', 'gif': 'Image', 'webp': 'Image',
+            'mp4': 'Video', 'avi': 'Video', 'mov': 'Video', 'mkv': 'Video',
+            'mp3': 'Audio', 'wav': 'Audio', 'flac': 'Audio'
+        };
+        
+        return typeMap[ext] || ext.toUpperCase();
+    }
+
+    /**
+     * Format date in readable format
+     */
+    formatDate(date) {
+        return new Date(date).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    /**
+     * Download a file or folder as stream (for batch operations)
+     * @param {string} filename - The filename or folder name
+     * @param {stream} stream - Writable stream to write to
+     */
+    async downloadToStream(filename, stream) {
         const filePath = path.join(uploadsDir, filename);
 
         try {
             if (this.fileOrDir(filename) === 1) {
-                // It's a file - send directly
-                console.log('Downloading file:', filePath);
-                res.sendFile(filePath);
+                // It's a file - stream directly
+                console.log('Streaming file:', filePath);
+                const readStream = fs.createReadStream(filePath);
+                readStream.pipe(stream);
+                
+                return new Promise((resolve, reject) => {
+                    readStream.on('end', resolve);
+                    readStream.on('error', reject);
+                    stream.on('error', reject);
+                });
             } else if (this.fileOrDir(filename) === -1) {
-                // It's a directory - zip and send
-                console.log('Zipping directory:', filePath);
-                res.attachment(`${filename}.zip`);
+                // It's a directory - zip and stream
+                console.log('Zipping directory for stream:', filePath);
                 const archive = archiver('zip', {
                     zlib: { level: 9 }
                 });
 
                 archive.on('error', (err) => {
                     console.error('Archive error:', err);
-                    res.status(500).send('Error creating archive');
+                    stream.destroy();
                 });
 
-                archive.pipe(res);
+                archive.pipe(stream);
                 archive.directory(filePath, false);
-                archive.finalize();
+                await archive.finalize();
             } else {
-                res.status(404).send('File or directory not found');
+                throw new Error('File or directory not found');
             }
         } catch (error) {
-            console.error('Error downloading file:', error.message);
-            res.status(500).send('Error downloading file');
+            console.error('Error downloading file to stream:', error.message);
+            throw error;
         }
     }
 
@@ -273,14 +341,82 @@ constructor() {
     }
 
     /**
-     * Get a readable stream of the file
-     * @param {string} filename 
+     * Download a file or folder as zip
+     * @param {string} filename - The filename or folder name
+     * @param {object} res - Express response object
      */
-    async getStream(filename) {
+    downloadFile(filename, res) {
         const filePath = path.join(uploadsDir, filename);
-        if (!fs.existsSync(filePath)) {
-            throw new Error('File not found');
+
+        try {
+            if (this.fileOrDir(filename) === 1) {
+                // It's a file - send directly
+                console.log('Downloading file:', filePath);
+                res.sendFile(filePath);
+            } else if (this.fileOrDir(filename) === -1) {
+                // It's a directory - zip and send
+                console.log('Zipping directory:', filePath);
+                res.attachment(`${filename}.zip`);
+                const archive = archiver('zip', {
+                    zlib: { level: 9 }
+                });
+
+                archive.on('error', (err) => {
+                    console.error('Archive error:', err);
+                    res.status(500).send('Error creating archive');
+                });
+
+                archive.pipe(res);
+                archive.directory(filePath, false);
+                archive.finalize();
+            } else {
+                res.status(404).send('File or directory not found');
+            }
+        } catch (error) {
+            console.error('Error downloading file:', error.message);
+            res.status(500).send('Error downloading file');
         }
-        return fs.createReadStream(filePath);
+    }
+
+    /**
+     * Get file or folder as a buffer (for batch operations)
+     * Directly reads files without using downloadFile
+     * @param {string} filename - The filename or folder name
+     * @returns {Promise<Buffer>} - Promise resolving to the file/folder data as buffer
+     */
+    async getFileAsBuffer(filename) {
+        try {
+            const filePath = path.join(uploadsDir, filename);
+            const type = this.fileOrDir(filename);
+
+            if (type === 1) {
+                // It's a file - read directly
+                console.log('Reading file for batch:', filePath);
+                const buffer = await fs.promises.readFile(filePath);
+                return buffer;
+            } else if (type === -1) {
+                // It's a folder - create zip and return as buffer
+                console.log('Creating zip for batch:', filePath);
+                
+                return new Promise((resolve, reject) => {
+                    const chunks = [];
+                    const archive = archiver('zip', {
+                        zlib: { level: 9 }
+                    });
+
+                    archive.on('data', (chunk) => chunks.push(chunk));
+                    archive.on('end', () => resolve(Buffer.concat(chunks)));
+                    archive.on('error', reject);
+
+                    archive.directory(filePath, false);
+                    archive.finalize();
+                });
+            } else {
+                throw new Error('File or folder not found');
+            }
+        } catch (error) {
+            console.error(`Error getting file as buffer: ${error.message}`);
+            throw error;
+        }
     }
 }

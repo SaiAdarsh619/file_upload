@@ -137,76 +137,6 @@ export default class AzureBlobStorageProvider {
     }
 
     /**
-     * File filter for multer to track folder mappings
-     * @private
-     */
-    async _fileFilter(req, file, cb) {
-        try {
-            // Initialize folder tracking for this request if not exists
-            if (!req.uploadedFolders) {
-                req.uploadedFolders = {};
-            }
-            if (!req.fileDestinations) {
-                req.fileDestinations = {};
-            }
-
-            // Try to get full filepath from captured paths, otherwise use originalname
-            let filepath = file.originalname;
-            
-            if (req.filePaths && req.filePaths[file.fieldname]) {
-                const capturedPaths = req.filePaths[file.fieldname];
-                // Get the path that matches this file (by position in array)
-                const fileIndex = (req.fileDestinations[`_count_${file.fieldname}`] || 0);
-                if (capturedPaths[fileIndex]) {
-                    filepath = capturedPaths[fileIndex];
-                    console.log(`Using captured filepath: ${filepath}`);
-                }
-                req.fileDestinations[`_count_${file.fieldname}`] = fileIndex + 1;
-            }
-            
-            // Sanitize the filepath to prevent directory traversal
-            filepath = path.normalize(filepath).replace(/(\.\.(\/|\\|))/g, '');
-            
-            let fileDir = path.dirname(filepath);
-            // Convert Windows paths to forward slashes
-            fileDir = fileDir.replace(/\\/g, '/');
-            
-            console.log('Processing file - filepath:', filepath, 'folder:', fileDir);
-
-            let mappedFolder = fileDir; // Default to original folder
-
-            // Only apply folder duplication logic for nested folders (not root level)
-            if (fileDir !== '.') {
-                // Check if we've already mapped this folder in this request
-                if (!req.uploadedFolders[fileDir]) {
-                    // First file from this folder - check if folder exists in Azure
-                    const availableFolder = await this.getAvailableFoldernameSync(fileDir);
-                    req.uploadedFolders[fileDir] = availableFolder;
-                    mappedFolder = availableFolder;
-                    console.log(`Mapped folder "${fileDir}" to "${availableFolder}"`);
-                } else {
-                    // Use previously mapped folder name
-                    mappedFolder = req.uploadedFolders[fileDir];
-                    console.log(`Using existing mapping for "${fileDir}": "${mappedFolder}"`);
-                }
-            } else {
-                // Root level file - keep as is
-                mappedFolder = '.';
-            }
-
-            // Store the destination for this file using original filepath as key
-            const fileKey = `${file.fieldname}_${filepath}`;
-            req.fileDestinations[fileKey] = { folder: mappedFolder, filename: path.basename(filepath) };
-            console.log(`File destination mapping: ${fileKey} -> folder: ${mappedFolder}, filename: ${path.basename(filepath)}`);
-
-            cb(null, true);
-        } catch (error) {
-            console.error('Error in fileFilter:', error);
-            cb(error);
-        }
-    }
-
-    /**
      * Upload files to Azure after multer processes them
      * @private
      */
@@ -367,35 +297,212 @@ export default class AzureBlobStorageProvider {
      */
     async list() {
         try {
-            const items = new Set(); // Use Set to avoid duplicates
-            const folders = new Set();
+            const items = new Map(); // Use Map to store metadata
+            const folders = new Map();
 
             for await (const blob of this.containerClient.listBlobsFlat()) {
                 const name = blob.name;
-                
-                // Check if this is a nested file (has a folder)
                 const slashIndex = name.indexOf('/');
-                
+
                 if (slashIndex !== -1) {
                     // It's a nested file - extract folder name
                     const folderName = name.substring(0, slashIndex);
-                    folders.add(folderName);
+                    if (!folders.has(folderName)) {
+                        folders.set(folderName, {
+                            name: folderName,
+                            isFolder: true,
+                            size: 0,
+                            sizeFormatted: '0 B',
+                            type: 'folder',
+                            modified: new Date(),
+                            modifiedFormatted: new Date().toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            })
+                        });
+                    }
                 } else {
                     // It's a root-level file
-                    items.add(name);
+                    items.set(name, {
+                        name: name,
+                        isFolder: false,
+                        size: blob.properties.contentLength || 0,
+                        sizeFormatted: this.formatFileSize(blob.properties.contentLength || 0),
+                        type: this.getFileType(name),
+                        modified: blob.properties.createdOn || new Date(),
+                        modifiedFormatted: new Date(blob.properties.createdOn || new Date()).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        })
+                    });
                 }
             }
 
             // Add folders to items (folders come first for better UX)
-            folders.forEach(folder => items.add(folder));
+            folders.forEach((value, key) => items.set(key, value));
 
-            const result = Array.from(items);
+            const result = Array.from(items.values());
             console.log('Listed items:', result);
             return result;
         } catch (error) {
             console.error('Error reading blobs:', error.message);
             return [];
         }
+    }
+
+    /**
+     * Format file size in human-readable format
+     */
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    /**
+     * Get file type from extension
+     */
+    getFileType(filename) {
+        const ext = path.extname(filename).toLowerCase().slice(1);
+        if (!ext) return 'unknown';
+        
+        const typeMap = {
+            'pdf': 'PDF',
+            'doc': 'Word', 'docx': 'Word',
+            'xls': 'Excel', 'xlsx': 'Excel',
+            'ppt': 'PowerPoint', 'pptx': 'PowerPoint',
+            'txt': 'Text',
+            'zip': 'Archive', 'rar': 'Archive', '7z': 'Archive',
+            'jpg': 'Image', 'jpeg': 'Image', 'png': 'Image', 'gif': 'Image', 'webp': 'Image',
+            'mp4': 'Video', 'avi': 'Video', 'mov': 'Video', 'mkv': 'Video',
+            'mp3': 'Audio', 'wav': 'Audio', 'flac': 'Audio'
+        };
+        
+        return typeMap[ext] || ext.toUpperCase();
+    }
+
+    /**
+     * Download a file or folder to a writable stream (for batch operations)
+     * @param {string} blobName - The blob name or folder name
+     * @param {stream} stream - Writable stream to write to
+     */
+    async downloadToStream(blobName, stream) {
+        try {
+            const type = await this.fileOrDir(blobName);
+
+            if (type === 1) {
+                // It's a file - stream directly
+                console.log('Streaming file:', blobName);
+                const blockBlobClient = this.containerClient.getBlockBlobClient(blobName);
+                const downloadBlockBlobResponse = await blockBlobClient.download(0);
+                
+                downloadBlockBlobResponse.readableStreamBody.pipe(stream);
+                
+                return new Promise((resolve, reject) => {
+                    downloadBlockBlobResponse.readableStreamBody.on('end', resolve);
+                    downloadBlockBlobResponse.readableStreamBody.on('error', reject);
+                    stream.on('error', reject);
+                });
+            } else if (type === -1) {
+                // It's a folder - create zip with all files in this folder
+                console.log('Zipping folder for stream:', blobName);
+                
+                const prefix = `${blobName}/`;
+                const archive = archiver('zip', {
+                    zlib: { level: 9 }
+                });
+
+                archive.on('error', (err) => {
+                    console.error('Archive error:', err);
+                    stream.destroy();
+                });
+
+                archive.pipe(stream);
+
+                // Add all files with this prefix to the archive
+                for await (const blob of this.containerClient.listBlobsFlat({ prefix })) {
+                    if (blob.name.startsWith(prefix)) {
+                        // Get the relative path within the folder (remove the prefix)
+                        const relativePath = blob.name.substring(prefix.length);
+                        const blockBlobClient = this.containerClient.getBlockBlobClient(blob.name);
+                        
+                        // Download blob and add to archive
+                        const downloadResponse = await blockBlobClient.download(0);
+                        archive.append(downloadResponse.readableStreamBody, { name: relativePath });
+                    }
+                }
+
+                await archive.finalize();
+            } else {
+                throw new Error('File or folder not found');
+            }
+        } catch (error) {
+            console.error('Error downloading to stream:', error.message);
+            throw error;
+        }
+    }
+        
+    /**
+     * Delete a file or folder
+     * @param {string} blobName - The blob name or folder name
+     * @param {function} callback - Callback function(err)
+     */
+    async deleteFileOrFolder(blobName, callback) {
+        try {
+            const type = await this.fileOrDir(blobName);
+
+            if (type === 1) {
+                // It's a file
+                console.log('Deleting file:', blobName);
+                const blockBlobClient = this.containerClient.getBlockBlobClient(blobName);
+                await blockBlobClient.delete();
+                console.log('File deleted successfully');
+                callback(null);
+            } else if (type === -1) {
+                // It's a folder - delete all blobs with this prefix
+                console.log('Deleting folder:', blobName);
+                const prefix = `${blobName}/`;
+                
+                for await (const blob of this.containerClient.listBlobsFlat({ prefix })) {
+                    if (blob.name.startsWith(prefix)) {
+                        const blockBlobClient = this.containerClient.getBlockBlobClient(blob.name);
+                        await blockBlobClient.delete();
+                        console.log(`Deleted: ${blob.name}`);
+                    }
+                }
+                console.log('Folder deleted successfully');
+                callback(null);
+            } else {
+                callback(new Error('File or folder not found'));
+            }
+        } catch (error) {
+            console.error('Error in deleteFileOrFolder:', error.message);
+            callback(error);
+        }
+    }
+
+    /**
+     * Delete a file or folder (promise-based)
+     * @param {string} blobName - The blob name or folder name
+     */
+    async delete(blobName) {
+        return new Promise((resolve, reject) => {
+            this.deleteFileOrFolder(blobName, (err) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve({ message: 'File or folder deleted successfully' });
+                }
+            });
+        });
     }
 
     /**
@@ -467,58 +574,72 @@ export default class AzureBlobStorageProvider {
     }
 
     /**
-     * Delete a file or folder
+     * Get file or folder as a buffer (for batch operations)
+     * Directly downloads from Azure without using downloadFile
      * @param {string} blobName - The blob name or folder name
-     * @param {function} callback - Callback function(err)
+     * @returns {Promise<Buffer>} - Promise resolving to the file/folder data as buffer
      */
-    async deleteFileOrFolder(blobName, callback) {
+    async getFileAsBuffer(blobName) {
         try {
             const type = await this.fileOrDir(blobName);
 
             if (type === 1) {
-                // It's a file
-                console.log('Deleting file:', blobName);
+                // It's a file - download directly
+                console.log('Downloading blob for batch:', blobName);
                 const blockBlobClient = this.containerClient.getBlockBlobClient(blobName);
-                await blockBlobClient.delete();
-                console.log('File deleted successfully');
-                callback(null);
-            } else if (type === -1) {
-                // It's a folder - delete all blobs with this prefix
-                console.log('Deleting folder:', blobName);
-                const prefix = `${blobName}/`;
+                const downloadResponse = await blockBlobClient.download(0);
                 
-                for await (const blob of this.containerClient.listBlobsFlat({ prefix })) {
-                    if (blob.name.startsWith(prefix)) {
-                        const blockBlobClient = this.containerClient.getBlockBlobClient(blob.name);
-                        await blockBlobClient.delete();
-                        console.log(`Deleted: ${blob.name}`);
-                    }
-                }
-                console.log('Folder deleted successfully');
-                callback(null);
+                // Convert stream to buffer
+                return new Promise((resolve, reject) => {
+                    const chunks = [];
+                    downloadResponse.readableStreamBody.on('data', (chunk) => {
+                        chunks.push(chunk);
+                    });
+                    downloadResponse.readableStreamBody.on('end', () => {
+                        resolve(Buffer.concat(chunks));
+                    });
+                    downloadResponse.readableStreamBody.on('error', reject);
+                });
+            } else if (type === -1) {
+                // It's a folder - create zip and return as buffer
+                console.log('Creating zip for batch:', blobName);
+                
+                return new Promise((resolve, reject) => {
+                    const chunks = [];
+                    const prefix = `${blobName}/`;
+                    const archive = archiver('zip', {
+                        zlib: { level: 9 }
+                    });
+
+                    archive.on('data', (chunk) => chunks.push(chunk));
+                    archive.on('end', () => resolve(Buffer.concat(chunks)));
+                    archive.on('error', reject);
+
+                    // Add all blobs with this prefix to the archive
+                    (async () => {
+                        try {
+                            for await (const blob of this.containerClient.listBlobsFlat({ prefix })) {
+                                if (blob.name.startsWith(prefix)) {
+                                    const relativePath = blob.name.substring(prefix.length);
+                                    const blockBlobClient = this.containerClient.getBlockBlobClient(blob.name);
+                                    const downloadResponse = await blockBlobClient.download(0);
+                                    archive.append(downloadResponse.readableStreamBody, { name: relativePath });
+                                }
+                            }
+                            await archive.finalize();
+                        } catch (error) {
+                            archive.destroy();
+                            reject(error);
+                        }
+                    })();
+                });
             } else {
-                callback(new Error('File or folder not found'));
+                throw new Error('File or folder not found');
             }
         } catch (error) {
-            console.error('Error in deleteFileOrFolder:', error.message);
-            callback(error);
+            console.error(`Error getting file as buffer: ${error.message}`);
+            throw error;
         }
-    }
-
-    /**
-     * Delete a file or folder (promise-based)
-     * @param {string} blobName - The blob name or folder name
-     */
-    async delete(blobName) {
-        return new Promise((resolve, reject) => {
-            this.deleteFileOrFolder(blobName, (err) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve({ message: 'File or folder deleted successfully' });
-                }
-            });
-        });
     }
 
     /**
