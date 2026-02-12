@@ -1,7 +1,5 @@
 import LocalStorageProvider from './LocalStorageProvider.js';
 import AzureBlobStorageProvider from './AzureBlobStorageProvider.js';
-import dotenv from 'dotenv';
-dotenv.config();
 
 class StorageFactory {
     create() {

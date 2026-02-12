@@ -2,9 +2,6 @@ import { BlobServiceClient } from '@azure/storage-blob';
 import multer from 'multer';
 import path from 'path';
 import archiver from 'archiver';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 export default class AzureBlobStorageProvider {
     constructor() {

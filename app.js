@@ -3,12 +3,15 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { storageFactory } from './services/StorageFactory.js';
 import archiver from 'archiver';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 console.log(__dirname);
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 const app = express();
 
 // Initialize the storage provider using factory
