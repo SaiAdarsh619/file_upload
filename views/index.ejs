@@ -19,17 +19,19 @@
         <div id="error" class="error" style="display: none;"></div>
         
         <div class="files-container">
-            <div class="files-header">
-                <h2>Files</h2>
-                <div style="display: flex; gap: 10px;">
-                    <button id="downloadSelectedBtn" type="button" onclick="downloadSelected()" style="display: none; background: #28a745;">
-                        Download Selected
-                    </button>
-                    <button id="deleteSelectedBtn" type="button" onclick="deleteSelected()" style="display: none; background: #dc3545;">
+        <div class="files-header">
+            <h2>Files</h2>
+            <div style="display: flex; gap: 10px;">
+                <button id="downloadSelectedBtn" type="button" onclick="downloadSelected()" style="display: none; background: #28a745;">
+                    Download Selected
+                </button>
+                <button id="deleteSelectedBtn" type="button" onclick="deleteSelected()" style="display: none; background: #dc3545;">
                     Delete Selected
                 </button>
             </div>
         </div>
+        
+        <div id="breadcrumb" class="breadcrumb"></div>
         
         <div style="display: flex; gap: 10px; margin-bottom: 15px; padding: 0 20px;">
             <input type="text" id="searchInput" placeholder="Search files and folders..." class="search-input">
@@ -38,5 +40,6 @@
         <div class="filelist" id="filelist" style="display: none;"></div>
     </div>
 </div>
+
 </body>
 </html>

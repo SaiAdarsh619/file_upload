@@ -223,8 +223,66 @@ h2 {
     text-decoration: underline;
 }
 
-.sort-btn.active {
-    color: #003d99;
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #f8f9fa 0%, #f0f0f0 100%);
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 14px;
+}
+
+.breadcrumb-back {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    border: none;
+    color: white;
+    cursor: pointer;
+    padding: 6px 12px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    font-weight: 500;
+    margin-right: 8px;
+}
+
+.breadcrumb-back:hover {
+    background: linear-gradient(135deg, #20c997 0%, #17a2b8 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.breadcrumb-item {
+    background: none;
+    border: none;
+    color: #0066cc;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    font-size: 14px;
+}
+
+.breadcrumb-item:hover {
+    background-color: rgba(0, 102, 204, 0.15);
+    text-decoration: underline;
+}
+
+.breadcrumb-sep {
+    color: #999;
+}
+
+.folder-row {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.folder-row:hover {
+    background-color: #e3f2fd;
+}
+
+.folder-row:hover .filename {
+    color: #0066cc;
+    text-decoration: underline;
 }
 
 .loading {

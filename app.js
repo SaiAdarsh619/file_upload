@@ -31,7 +31,8 @@ app.get('/', (req, res) => {
 
 app.get('/files', async (req, res) => {
     try {
-        const file_list = await storageProvider.list();
+        const currentPath = req.query.path || ''; // Get current folder path from query
+        const file_list = await storageProvider.list(currentPath);
         res.json(file_list);
     } catch (error) {
         res.status(500).json({ error: 'Failed to retrieve file list' });
@@ -148,9 +149,12 @@ app.post('/download-batch', async (req, res) => {
                 // Get file/folder as buffer using the provider's helper method
                 const buffer = await storageProvider.getFileAsBuffer(item);
                 
-                // Add to archive
-                archive.append(buffer, { name: item });
-                console.log(`Added to archive: ${item}`);
+                // Extract just the filename from the path (remove folder structure)
+                const filename = path.basename(item);
+                
+                // Add to archive with just the filename (not the full path)
+                archive.append(buffer, { name: filename });
+                console.log(`Added to archive: ${filename}`);
             } catch (error) {
                 console.error(`Error adding ${item} to archive:`, error);
                 // Continue with next item
@@ -166,8 +170,18 @@ app.post('/download-batch', async (req, res) => {
     }
 });
 
-app.post('/upload', storageProvider.upload.array('files'), (req, res) => {
-    res.redirect('/');
+app.post('/upload', (req, res, next) => {
+    // Get uploadPath from query parameter
+    req.uploadPath = req.query.uploadPath || '';
+    console.log('Upload path from query:', req.uploadPath);
+    
+    storageProvider.upload.array('files')(req, res, (err) => {
+        if (err) {
+            console.error('Upload error:', err);
+            return res.status(500).json({ error: 'Upload failed' });
+        }
+        res.redirect('/');
+    });
 });
 
 app.listen(PORT, (err) => {

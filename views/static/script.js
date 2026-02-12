@@ -4,8 +4,10 @@ const errorDiv = document.getElementById('error');
 const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
 const downloadSelectedBtn = document.getElementById('downloadSelectedBtn');
 const searchInput = document.getElementById('searchInput');
+const breadcrumbDiv = document.getElementById('breadcrumb');
 
 let allItems = [];
+let currentPath = ''; // Track current folder path
 let currentSortBy = 'name';
 let currentSortOrder = 'asc';
 
@@ -29,7 +31,12 @@ uploadForm.addEventListener('submit', async (e) => {
     }
 
     try {
-        const response = await fetch('/upload', {
+        // Build URL with uploadPath as query parameter
+        const uploadUrl = currentPath 
+            ? `/upload?uploadPath=${encodeURIComponent(currentPath)}` 
+            : '/upload';
+        
+        const response = await fetch(uploadUrl, {
             method: 'POST',
             body: formData
         });
@@ -105,25 +112,75 @@ function filterItems(items, searchTerm) {
 // Fetch and display files
 async function loadFiles() {
     try {
-        const response = await fetch('/files');
+        const url = currentPath ? `/files?path=${encodeURIComponent(currentPath)}` : '/files';
+        const response = await fetch(url);
         if (!response.ok) throw new Error('Failed to load files');
 
         allItems = await response.json();
 
         if (allItems.length === 0) {
-            filelistDiv.innerHTML = '<div class="loading">No files uploaded yet</div>';
+            filelistDiv.innerHTML = '<div class="loading">No files in this folder</div>';
             filelistDiv.style.display = 'block';
             deleteSelectedBtn.style.display = 'none';
             downloadSelectedBtn.style.display = 'none';
+            renderBreadcrumb();
             return;
         }
 
+        renderBreadcrumb();
         renderFileList();
     } catch (err) {
         errorDiv.textContent = 'Error loading files: ' + err.message;
         errorDiv.style.display = 'block';
         filelistDiv.innerHTML = '';
     }
+}
+
+// Render breadcrumb navigation
+function renderBreadcrumb() {
+    let breadcrumbHTML = '<div class="breadcrumb">';
+    
+    // Back button
+    if (currentPath) {
+        breadcrumbHTML += '<button class="breadcrumb-back" onclick="goBack()" title="Go back">← Back</button>';
+    }
+    
+    // Root
+    breadcrumbHTML += '<button class="breadcrumb-item" onclick="navigateToPath(\'\')">📂 Root</button>';
+    
+    if (currentPath) {
+        const parts = currentPath.split('/');
+        let cumulativePath = '';
+        
+        for (let i = 0; i < parts.length; i++) {
+            cumulativePath += (cumulativePath ? '/' : '') + parts[i];
+            breadcrumbHTML += ` <span class="breadcrumb-sep">/</span> <button class="breadcrumb-item" onclick="navigateToPath('${cumulativePath}')">${parts[i]}</button>`;
+        }
+    }
+    
+    breadcrumbHTML += '</div>';
+    breadcrumbDiv.innerHTML = breadcrumbHTML;
+}
+
+// Go back to previous folder
+function goBack() {
+    const parts = currentPath.split('/');
+    parts.pop();
+    currentPath = parts.join('/');
+    searchInput.value = ''; // Clear search
+    loadFiles();
+}
+
+// Navigate to a specific folder path
+function navigateToPath(newPath) {
+    currentPath = newPath;
+    searchInput.value = ''; // Clear search
+    loadFiles();
+}
+
+// Enter folder - called on single click for folders
+function enterFolder(path) {
+    navigateToPath(path);
 }
 
 // Render file list with current filters and sorting
@@ -148,17 +205,22 @@ function renderFileList() {
     `;
 
     items.forEach((item) => {
+        const isFolder = item.isFolder;
+        const nameCell = isFolder 
+            ? `<span class="filename" style="cursor: pointer; color: #0066cc; font-weight: 500;" onclick="enterFolder('${item.path}')">${item.name}</span>`
+            : `<span class="filename">${item.name}</span>`;
+        
         tableHTML += `
-            <tr class="filerow">
-                <td><input type="checkbox" name="selectedFiles" value="${item.name}" onchange="updateActionButtons()"></td>
+            <tr class="filerow ${isFolder ? 'folder-row' : ''}">
+                <td><input type="checkbox" name="selectedFiles" value="${item.path || item.name}" onchange="updateActionButtons()"></td>
                 <td class="filename-cell">
-                    ${item.isFolder ? '📁' : '📄'}
-                    <span class="filename">${item.name}</span>
+                    ${isFolder ? '📁' : '📄'}
+                    ${nameCell}
                     <div class="action-icons">
-                        <button class="icon-btn download-btn" onclick="downloadSingle('${item.name}')" title="Download">
+                        ${!isFolder ? `<button class="icon-btn download-btn" onclick="downloadSingle('${item.path || item.name}')" title="Download">
                             ⬇️
-                        </button>
-                        <button class="icon-btn delete-btn" onclick="deleteSingle('${item.name}')" title="Delete">
+                        </button>` : ''}
+                        <button class="icon-btn delete-btn" onclick="deleteSingle('${item.path || item.name}')" title="Delete">
                             🗑️
                         </button>
                     </div>
@@ -315,11 +377,6 @@ async function downloadSelected() {
 // Add search event listener
 searchInput.addEventListener('input', () => {
     renderFileList();
-});
-
-// Load files when page loads
-document.addEventListener('DOMContentLoaded', () => {
-    loadFiles();
 });
 
 // Load files when page loads

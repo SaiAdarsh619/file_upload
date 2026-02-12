@@ -88,6 +88,9 @@ export default class AzureBlobStorageProvider {
                 req.fileDestinations = {};
             }
 
+            // Get the upload path from request (e.g., 'folder1/folder2')
+            const uploadPath = req.uploadPath || '';
+
             // preservePath: true preserves the full path from FormData
             let filePath = file.originalname;
             
@@ -100,7 +103,78 @@ export default class AzureBlobStorageProvider {
             // Convert Windows paths to forward slashes
             fileDir = fileDir.replace(/\\/g, '/');
             
-            console.log('Processing file - filepath:', filePath, 'folder:', fileDir);
+            console.log('Processing file - filepath:', filePath, 'folder:', fileDir, 'uploadPath:', uploadPath);
+
+            let mappedFolder = fileDir; // Default to original folder
+
+            // Only apply folder duplication logic for nested folders (not root level)
+            if (fileDir !== '.') {
+                // Check if we've already mapped this folder in this request
+                if (!req.uploadedFolders[fileDir]) {
+                    // First file from this folder - check if folder exists in Azure
+                    const availableFolder = await this.getAvailableFoldernameSync(fileDir, uploadPath);
+                    req.uploadedFolders[fileDir] = availableFolder;
+                    mappedFolder = availableFolder;
+                    console.log(`Mapped folder "${fileDir}" to "${availableFolder}"`);
+                } else {
+                    // Use previously mapped folder name
+                    mappedFolder = req.uploadedFolders[fileDir];
+                    console.log(`Using existing mapping for "${fileDir}": "${mappedFolder}"`);
+                }
+            } else {
+                // Root level file (no folder) - use uploadPath if provided
+                mappedFolder = uploadPath || '.';
+                console.log('Root level file - uploadPath:', uploadPath);
+            }
+
+            // Store the destination for this file
+            const fileKey = `${file.fieldname}_${filePath}`;
+            req.fileDestinations[fileKey] = { folder: mappedFolder, filename: path.basename(filePath) };
+            console.log(`File destination mapping: ${fileKey} -> folder: ${mappedFolder}, filename: ${path.basename(filePath)}`);
+
+            cb(null, true);
+        } catch (error) {
+            console.error('Error in fileFilter:', error);
+            cb(error);
+        }
+    }
+
+    /**
+     * File filter for multer to track folder mappings
+     * @private
+     */
+    async _fileFilter(req, file, cb) {
+        try {
+            // Initialize folder tracking for this request if not exists
+            if (!req.uploadedFolders) {
+                req.uploadedFolders = {};
+            }
+            if (!req.fileDestinations) {
+                req.fileDestinations = {};
+            }
+
+            // Try to get full filepath from captured paths, otherwise use originalname
+            let filepath = file.originalname;
+            
+            if (req.filePaths && req.filePaths[file.fieldname]) {
+                const capturedPaths = req.filePaths[file.fieldname];
+                // Get the path that matches this file (by position in array)
+                const fileIndex = (req.fileDestinations[`_count_${file.fieldname}`] || 0);
+                if (capturedPaths[fileIndex]) {
+                    filepath = capturedPaths[fileIndex];
+                    console.log(`Using captured filepath: ${filepath}`);
+                }
+                req.fileDestinations[`_count_${file.fieldname}`] = fileIndex + 1;
+            }
+            
+            // Sanitize the filepath to prevent directory traversal
+            filepath = path.normalize(filepath).replace(/(\.\.(\/|\\|))/g, '');
+            
+            let fileDir = path.dirname(filepath);
+            // Convert Windows paths to forward slashes
+            fileDir = fileDir.replace(/\\/g, '/');
+            
+            console.log('Processing file - filepath:', filepath, 'folder:', fileDir);
 
             let mappedFolder = fileDir; // Default to original folder
 
@@ -119,15 +193,14 @@ export default class AzureBlobStorageProvider {
                     console.log(`Using existing mapping for "${fileDir}": "${mappedFolder}"`);
                 }
             } else {
-                // Root level file (no folder)
+                // Root level file - keep as is
                 mappedFolder = '.';
-                console.log('Root level file - no folder mapping needed');
             }
 
-            // Store the destination for this file
-            const fileKey = `${file.fieldname}_${filePath}`;
-            req.fileDestinations[fileKey] = { folder: mappedFolder, filename: path.basename(filePath) };
-            console.log(`File destination mapping: ${fileKey} -> folder: ${mappedFolder}, filename: ${path.basename(filePath)}`);
+            // Store the destination for this file using original filepath as key
+            const fileKey = `${file.fieldname}_${filepath}`;
+            req.fileDestinations[fileKey] = { folder: mappedFolder, filename: path.basename(filepath) };
+            console.log(`File destination mapping: ${fileKey} -> folder: ${mappedFolder}, filename: ${path.basename(filepath)}`);
 
             cb(null, true);
         } catch (error) {
@@ -196,12 +269,15 @@ export default class AzureBlobStorageProvider {
      * Checks if a folder (prefix) exists in Azure by listing blobs
      * @param {string} folderName - The folder name to check
      */
-    async getAvailableFoldernameSync(folderName) {
+    async getAvailableFoldernameSync(folderName, uploadPath = '') {
         let name = folderName;
         let counter = 1;
 
+        // Build the full folder path
+        const fullPath = uploadPath ? `${uploadPath}/${folderName}` : folderName;
+
         // Check if any blob exists with this prefix
-        while (await this.folderExistsInAzure(name)) {
+        while (await this.folderExistsInAzure(uploadPath ? `${uploadPath}/${name}` : name)) {
             name = `${folderName}(${counter})`;
             counter++;
         }
@@ -293,23 +369,36 @@ export default class AzureBlobStorageProvider {
 
     /**
      * List all files and folders in Azure (virtual folder structure)
-     * Returns folder names once and individual root files
+     * @param {string} currentPath - Current folder path (empty string for root)
      */
-    async list() {
+    async list(currentPath = '') {
         try {
-            const items = new Map(); // Use Map to store metadata
+            const items = new Map();
             const folders = new Map();
+            
+            // Build the prefix for the current path
+            const prefix = currentPath ? `${currentPath}/` : '';
 
-            for await (const blob of this.containerClient.listBlobsFlat()) {
-                const name = blob.name;
-                const slashIndex = name.indexOf('/');
+            for await (const blob of this.containerClient.listBlobsFlat({ prefix })) {
+                const fullName = blob.name;
+                
+                // Get the name relative to current path
+                const relativeName = fullName.substring(prefix.length);
+                
+                // Skip if it's empty or the blob itself
+                if (!relativeName) continue;
+                
+                // Find the first slash to determine if it's a file or folder at this level
+                const slashIndex = relativeName.indexOf('/');
 
                 if (slashIndex !== -1) {
-                    // It's a nested file - extract folder name
-                    const folderName = name.substring(0, slashIndex);
+                    // It's a nested item - extract folder name
+                    const folderName = relativeName.substring(0, slashIndex);
                     if (!folders.has(folderName)) {
+                        const folderPath = prefix ? `${prefix}${folderName}` : folderName;
                         folders.set(folderName, {
                             name: folderName,
+                            path: folderPath,
                             isFolder: true,
                             size: 0,
                             sizeFormatted: '0 B',
@@ -325,13 +414,15 @@ export default class AzureBlobStorageProvider {
                         });
                     }
                 } else {
-                    // It's a root-level file
-                    items.set(name, {
-                        name: name,
+                    // It's a root-level file in current directory
+                    const filePath = prefix ? `${prefix}${relativeName}` : relativeName;
+                    items.set(relativeName, {
+                        name: relativeName,
+                        path: filePath,
                         isFolder: false,
                         size: blob.properties.contentLength || 0,
                         sizeFormatted: this.formatFileSize(blob.properties.contentLength || 0),
-                        type: this.getFileType(name),
+                        type: this.getFileType(relativeName),
                         modified: blob.properties.createdOn || new Date(),
                         modifiedFormatted: new Date(blob.properties.createdOn || new Date()).toLocaleDateString('en-US', {
                             year: 'numeric',
@@ -348,7 +439,7 @@ export default class AzureBlobStorageProvider {
             folders.forEach((value, key) => items.set(key, value));
 
             const result = Array.from(items.values());
-            console.log('Listed items:', result);
+            console.log('Listed items in', currentPath || 'root:', result);
             return result;
         } catch (error) {
             console.error('Error reading blobs:', error.message);
@@ -449,7 +540,7 @@ export default class AzureBlobStorageProvider {
             throw error;
         }
     }
-        
+
     /**
      * Delete a file or folder
      * @param {string} blobName - The blob name or folder name

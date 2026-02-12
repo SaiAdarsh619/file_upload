@@ -30,6 +30,17 @@ export default class LocalStorageProvider {
                 }
 
                 let baseUploadDir = uploadsDir;
+                
+                // Get the upload path from request (e.g., 'folder1/folder2')
+                const uploadPath = req.uploadPath || '';
+                
+                // If uploadPath is provided, prepend it to baseUploadDir
+                if (uploadPath) {
+                    baseUploadDir = path.join(uploadsDir, uploadPath);
+                    // Create the base upload directory if it doesn't exist
+                    fs.mkdirSync(baseUploadDir, { recursive: true });
+                }
+                
                 let filepath = file.originalname;
                 
                 //console.log(filepath);
@@ -48,7 +59,7 @@ export default class LocalStorageProvider {
                     
                     if (!mappedFolder) {
                         // First file from this folder - check if folder exists
-                        mappedFolder = this.getAvailableFoldernameSync(fileDir);
+                        mappedFolder = this.getAvailableFoldernameSync(fileDir, baseUploadDir);
                         // Store the mapping for other files from this folder in same request
                         req.uploadedFolders[fileDir] = mappedFolder;
                         console.log(`Mapped folder "${fileDir}" to "${mappedFolder}"`);
@@ -58,9 +69,9 @@ export default class LocalStorageProvider {
                 const finalDir = mappedFolder === '.' ? baseUploadDir : path.join(baseUploadDir, mappedFolder);
                 console.log('Final directory:', finalDir);
                 
-                // Verify the resolved path is still within baseUploadDir (security check)
+                // Verify the resolved path is still within uploadsDir (security check)
                 const realPath = path.resolve(finalDir);
-                if (!realPath.startsWith(path.resolve(baseUploadDir))) {
+                if (!realPath.startsWith(path.resolve(uploadsDir))) {
                     return cb(new Error('Invalid file path'));
                 }
                 
@@ -110,18 +121,19 @@ export default class LocalStorageProvider {
      * Only checks at uploads root level
      * @param {string} folderName 
      */
-    getAvailableFoldernameSync(folderName) {
+    getAvailableFoldernameSync(folderName, baseUploadDir = uploadsDir) {
         let name = folderName;
         let counter = 1;
 
-        while (fs.existsSync(path.join(uploadsDir, name))) {
+        while (fs.existsSync(path.join(baseUploadDir, name))) {
             name = `${folderName}(${counter})`;
             counter++;
         }
         return name;
     }
-    
-    /* Get unique filename like name(1).ext if exists (async version)
+
+    /**
+     * Get unique filename like name(1).ext if exists (async version)
      * @param {string} originalName 
      */
     async getAvailableFilename(originalName) {
@@ -163,18 +175,32 @@ export default class LocalStorageProvider {
 
     /**
      * List all files and folders in storage with metadata
+     * @param {string} currentPath - Current folder path (empty string for root)
      */
-    async list() {
+    async list(currentPath = '') {
         try {
-            const files = await fs.promises.readdir(uploadsDir, { withFileTypes: true });
+            // Resolve the full directory path
+            const targetDir = currentPath ? path.join(uploadsDir, currentPath) : uploadsDir;
+            
+            // Security check: prevent directory traversal
+            const realPath = path.resolve(targetDir);
+            if (!realPath.startsWith(path.resolve(uploadsDir))) {
+                throw new Error('Invalid path');
+            }
+
+            const files = await fs.promises.readdir(targetDir, { withFileTypes: true });
             const items = [];
 
             for (const file of files) {
-                const filePath = path.join(uploadsDir, file.name);
+                const filePath = path.join(targetDir, file.name);
                 const stats = await fs.promises.stat(filePath);
+                
+                // Build the relative path from uploads directory
+                const relativePath = path.relative(uploadsDir, filePath).replace(/\\/g, '/');
 
                 items.push({
                     name: file.name,
+                    path: relativePath,
                     isFolder: file.isDirectory(),
                     size: stats.size,
                     sizeFormatted: this.formatFileSize(stats.size),
@@ -184,7 +210,7 @@ export default class LocalStorageProvider {
                 });
             }
 
-            console.log('Listed items:', items);
+            console.log('Listed items in', currentPath || 'root:', items);
             return items;
         } catch (error) {
             console.error('Error reading directory:', error.message);
