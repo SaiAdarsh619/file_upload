@@ -3,43 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>File Upload</title>
+    <title>File Manager</title>
     <link rel="stylesheet" href="/styles.css">
     <script src="/script.js" defer></script>
 </head>
 <body>
-    <div class="container">
-        <h1>File Upload</h1>
-        <form id="uploadForm">
-            <label for="file">Select file</label>
-            <input type="file" name="file" id="file" multiple>
-            <input type="file" name="folder" id="folder" webkitdirectory multiple>
-            <button type="submit">Upload</button>
-        </form>
-        <div id="error" class="error" style="display: none;"></div>
-        
-        <div class="files-container">
-        <div class="files-header">
-            <h2>Files</h2>
-            <div style="display: flex; gap: 10px;">
-                <button id="downloadSelectedBtn" type="button" onclick="downloadSelected()" style="display: none; background: #28a745;">
-                    Download Selected
-                </button>
-                <button id="deleteSelectedBtn" type="button" onclick="deleteSelected()" style="display: none; background: #dc3545;">
-                    Delete Selected
-                </button>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <h1>Files</h1>
+            <div class="header-actions">
+                <input type="text" id="searchInput" placeholder="Search..." class="search-input">
+                <button id="viewToggle" class="view-toggle-btn" title="Toggle view">≡</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="app-content">
+            <!-- Upload Section -->
+            <div class="upload-section">
+                <form id="uploadForm" class="upload-form">
+                    <div class="upload-inputs">
+                        <div class="upload-input-group">
+                            <input type="file" name="file" id="file" multiple>
+                            <label for="file">📁 Files</label>
+                        </div>
+                        <div class="upload-input-group">
+                            <input type="file" name="folder" id="folder" webkitdirectory multiple>
+                            <label for="folder">📂 Folder</label>
+                        </div>
+                    </div>
+                    <button type="submit" class="upload-submit-btn">⬆️ Upload</button>
+                </form>
+                <div id="error" class="error-message" style="display: none;"></div>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <div id="breadcrumb" class="breadcrumb"></div>
+                <div class="toolbar-actions">
+                    <button id="downloadSelectedBtn" class="toolbar-btn" onclick="downloadSelected()" style="display: none;">
+                        Download
+                    </button>
+                    <button id="deleteSelectedBtn" class="toolbar-btn delete" onclick="deleteSelected()" style="display: none;">
+                        Delete
+                    </button>
+                </div>
+            </div>
+
+            <!-- Files View -->
+            <div class="files-view">
+                <div id="filelist" class="file-list"></div>
             </div>
         </div>
-        
-        <div id="breadcrumb" class="breadcrumb"></div>
-        
-        <div style="display: flex; gap: 10px; margin-bottom: 15px; padding: 0 20px;">
-            <input type="text" id="searchInput" placeholder="Search files and folders..." class="search-input">
-        </div>
-        
-        <div class="filelist" id="filelist" style="display: none;"></div>
     </div>
-</div>
 
+    <!-- Context Menu -->
+    <div id="contextMenu" class="context-menu" style="display: none;">
+        <button class="context-item" id="ctxDownload">Download</button>
+        <button class="context-item" id="ctxDelete">Delete</button>
+    </div>
 </body>
 </html>
