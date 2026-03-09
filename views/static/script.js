@@ -561,6 +561,7 @@ async function deleteSelected() {
 
 async function downloadSingle(filename) {
     try {
+        const actualFilename = filename.includes('/') ? filename.split('/').pop() : filename;
         const response = await fetch(`/uploads/${encodeURIComponent(filename)}`);
         if (!response.ok) throw new Error('Download failed');
 
@@ -568,7 +569,7 @@ async function downloadSingle(filename) {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = filename.split('/').pop();
+        a.download = actualFilename;
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
@@ -597,6 +598,11 @@ async function downloadSelected() {
     const items = Array.from(checkboxes).map(cb => cb.value);
 
     if (items.length === 0) return;
+
+        if (items.length === 1) {
+        downloadSingle(items[0]);  // Uses /uploads/<filename>
+        return;
+    }
 
     try {
         const response = await fetch('/download-batch', {
