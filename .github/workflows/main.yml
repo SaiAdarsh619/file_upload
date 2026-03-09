@@ -16,5 +16,5 @@ jobs:
           username: ${{ secrets.SECRET_USER }}
           key: ${{ secrets.SECRET_SSH_KEY }}
           script: |
-            cd /home/alwayson/file_upload
+            cd /home/${{ secrets.SECRET_USER }}/${{ github.repository.name }}
             git pull origin main
