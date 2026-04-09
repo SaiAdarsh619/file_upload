@@ -1,4 +1,4 @@
-name: Deploy
+name: Deploy (Password SSH)
 
 on:
   push:
@@ -9,12 +9,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: SSH Deploy
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SECRET_HOST }}
-          username: ${{ secrets.SECRET_USER }}
-          key: ${{ secrets.SECRET_SSH_KEY }}
-          script: |
-            cd /home/${{ secrets.SECRET_USER }}/${{ github.repository.name }}
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: SSH and Deploy using password
+        env:
+          HOST: ${{ secrets.SECRET_HOST }}
+          USER: ${{ secrets.SECRET_USER }}
+          PASS: ${{ secrets.SECRET_PASS }}
+        run: |
+          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$HOST << 'EOF'
+            cd /home/alwayson/file_upload
             git pull origin main
+          EOF
