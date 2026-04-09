@@ -72,11 +72,12 @@ uploadForm.addEventListener('submit', async (e) => {
     }
 
     try {
-        const uploadUrl = currentPath 
-            ? `/upload?uploadPath=${encodeURIComponent(currentPath)}` 
+        const uploadUrl = currentPath
+            ? `/upload?uploadPath=${encodeURIComponent(currentPath)}`
             : '/upload';
-        
-        const response = await fetch(uploadUrl, { method: 'POST', body: formData });
+
+        const response = await apiFetch(uploadUrl, { method: 'POST', body: formData });
+        if (!response) return;
         if (!response.ok) throw new Error('Upload failed');
 
         fileInput.value = '';
@@ -92,11 +93,11 @@ uploadForm.addEventListener('submit', async (e) => {
 // Sorting
 function sortFiles(items, sortBy, sortOrder) {
     const sorted = [...items];
-    
+
     sorted.sort((a, b) => {
         let aVal, bVal;
-        
-        switch(sortBy) {
+
+        switch (sortBy) {
             case 'name':
                 aVal = a.name.toLowerCase();
                 bVal = b.name.toLowerCase();
@@ -117,12 +118,12 @@ function sortFiles(items, sortBy, sortOrder) {
                 aVal = a.name;
                 bVal = b.name;
         }
-        
+
         if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
         return 0;
     });
-    
+
     return sorted;
 }
 
@@ -143,11 +144,23 @@ function filterItems(items, searchTerm) {
     return items.filter(item => item.name.toLowerCase().includes(term));
 }
 
+// ─── Auth-aware fetch wrapper ─────────────────────────────────────────────
+async function apiFetch(url, options = {}) {
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+        // Session expired — redirect to login
+        window.location.href = '/login';
+        return null;
+    }
+    return res;
+}
+
 // Load files
 async function loadFiles() {
     try {
         const url = currentPath ? `/files?path=${encodeURIComponent(currentPath)}` : '/files';
-        const response = await fetch(url);
+        const response = await apiFetch(url);
+        if (!response) return;
         if (!response.ok) throw new Error('Failed to load files');
 
         allItems = await response.json();
@@ -160,22 +173,23 @@ async function loadFiles() {
     }
 }
 
+
 // Breadcrumb
 function renderBreadcrumb() {
     let html = '<div class="breadcrumb">';
-    
+
     html += '<button class="breadcrumb-item" onclick="navigateToPath(\'\')">Home</button>';
-    
+
     if (currentPath) {
         const parts = currentPath.split('/');
         let cumulativePath = '';
-        
+
         for (let i = 0; i < parts.length; i++) {
             cumulativePath += (cumulativePath ? '/' : '') + parts[i];
             html += ` <span class="breadcrumb-sep">/</span> <button class="breadcrumb-item" onclick="navigateToPath('${cumulativePath}')">${parts[i]}</button>`;
         }
     }
-    
+
     html += '</div>';
     breadcrumbDiv.innerHTML = html;
 }
@@ -213,7 +227,7 @@ function renderFileList() {
     } else {
         renderListView(items);
     }
-    
+
     // Add handlers (only once - they check for existing handlers)
     addEmptyClickHandler();
     addDragSelection();
@@ -230,11 +244,11 @@ function renderGridView(items) {
     html += '<button class="view-toggle-toolbar" id="viewToggleToolbar" onclick="viewToggleBtn.click()" title="Toggle view">☰ List</button>';
     html += '</div>';
     html += '<div class="grid-container">';
-    
+
     items.forEach((item) => {
         const icon = item.isFolder ? '📁' : getFileIcon(item.name);
         const path = item.path || item.name;
-        
+
         html += `
             <div class="grid-item" data-path="${path}" data-is-folder="${item.isFolder}" onclick="handleGridItemBoxClick(event, '${path}', ${item.isFolder})">
                 <div class="grid-item-checkbox">
@@ -249,7 +263,7 @@ function renderGridView(items) {
             </div>
         `;
     });
-    
+
     html += '</div>';
     filelistDiv.innerHTML = html;
     updateActionButtons();
@@ -265,7 +279,7 @@ function renderListView(items) {
     html += '</div>';
     html += '<button class="view-toggle-toolbar" id="viewToggleToolbar" onclick="viewToggleBtn.click()" title="Toggle view">⊞ Grid</button>';
     html += '</div>';
-    
+
     html += `
         <table class="file-table">
             <thead>
@@ -291,7 +305,7 @@ function renderListView(items) {
     items.forEach((item) => {
         const icon = item.isFolder ? '📁' : getFileIcon(item.name);
         const path = item.path || item.name;
-        
+
         html += `
             <tr class="file-row" data-path="${path}" data-is-folder="${item.isFolder}" onclick="handleListRowClick(event, '${path}', ${item.isFolder})" oncontextmenu="showContextMenu(event, '${path}')">
                 <td onclick="event.stopPropagation();"><input type="checkbox" name="selectedFiles" value="${path}" onchange="updateActionButtons()" onclick="event.stopPropagation();"></td>
@@ -315,7 +329,7 @@ function renderListView(items) {
 function handleGridItemBoxClick(event, path, isFolder) {
     // If clicking on checkbox, let it handle normally
     if (event.target.closest('input[class="grid-item"]')) return;
-    
+
     // If clicking on the name/icon and it's a folder, open it
     if (event.target.closest('.grid-item-icon') || event.target.closest('.grid-item-name')) {
         if (isFolder) {
@@ -323,7 +337,7 @@ function handleGridItemBoxClick(event, path, isFolder) {
             return;
         }
     }
-    
+
     // Otherwise, select the item
     const checkbox = event.currentTarget.querySelector('input[type="checkbox"]');
     if (checkbox) {
@@ -335,7 +349,7 @@ function handleGridItemBoxClick(event, path, isFolder) {
 function handleListRowClick(event, path, isFolder) {
     // If clicking on checkbox, let it handle normally
     if (event.target.closest('input[type="checkbox"]')) return;
-    
+
     // If clicking on the name cell and it's a folder, open it
     if (event.target.closest('.name-cell')) {
         if (isFolder) {
@@ -343,7 +357,7 @@ function handleListRowClick(event, path, isFolder) {
             return;
         }
     }
-    
+
     // Otherwise, select the item
     const checkbox = event.currentTarget.querySelector('input[type="checkbox"]');
     if (checkbox) {
@@ -356,56 +370,56 @@ function handleListRowClick(event, path, isFolder) {
 function addDragSelection() {
     const filesView = document.querySelector('.files-view');
     const container = filelistDiv;
-    
+
     if (!filesView || !container || filesView.dataset.dragHandlerAdded) return;
-    
+
     let startX = 0, startY = 0;
     let isSelectingNow = false;
     const MIN_DRAG_DISTANCE = 5; // Minimum pixels to drag before starting selection
-    
+
     const selectionBox = document.querySelector('.selection-box') || (() => {
         const box = document.createElement('div');
         box.className = 'selection-box';
         document.body.appendChild(box);
         return box;
     })();
-    
+
     container.addEventListener('mousedown', (e) => {
         // Don't start selection on checkbox or toolbar
         if (e.button !== 0) return;
         if (e.target.closest('input[type="checkbox"], .view-toolbar, th')) return;
-        
+
         isSelectingNow = true;
         startX = e.clientX;
         startY = e.clientY;
     }, false);
-    
+
     document.addEventListener('mousemove', (e) => {
         if (!isSelectingNow) return;
-        
+
         const currentX = e.clientX;
         const currentY = e.clientY;
-        
+
         // Only start showing selection box after minimum drag distance
         const dragDistance = Math.sqrt(
             Math.pow(currentX - startX, 2) + Math.pow(currentY - startY, 2)
         );
-        
+
         if (dragDistance < MIN_DRAG_DISTANCE) return;
-        
+
         // Calculate selection box dimensions
         const x = Math.min(startX, currentX);
         const y = Math.min(startY, currentY);
         const width = Math.abs(currentX - startX);
         const height = Math.abs(currentY - startY);
-        
+
         // Update selection box display
         selectionBox.style.left = x + 'px';
         selectionBox.style.top = y + 'px';
         selectionBox.style.width = width + 'px';
         selectionBox.style.height = height + 'px';
         selectionBox.style.display = 'block';
-        
+
         // Selection box boundaries (in viewport coordinates)
         const selectionBounds = {
             left: x,
@@ -413,13 +427,13 @@ function addDragSelection() {
             top: y,
             bottom: y + height
         };
-        
+
         // Check which items are in the selection area
         const items = container.querySelectorAll('[data-path]');
         items.forEach(item => {
             // Get item position in viewport coordinates
             const itemRect = item.getBoundingClientRect();
-            
+
             // Check if item intersects with selection box
             // An item is selected if ANY part of it overlaps with the selection box
             const isIntersecting = !(
@@ -428,24 +442,24 @@ function addDragSelection() {
                 itemRect.bottom < selectionBounds.top ||
                 itemRect.top > selectionBounds.bottom
             );
-            
+
             // Check the item's checkbox
             const checkbox = item.querySelector('input[type="checkbox"]');
             if (checkbox) {
                 checkbox.checked = isIntersecting;
             }
         });
-        
+
         updateActionButtons();
     }, false);
-    
+
     document.addEventListener('mouseup', () => {
         if (isSelectingNow) {
             isSelectingNow = false;
             selectionBox.style.display = 'none';
         }
     }, false);
-    
+
     filesView.dataset.dragHandlerAdded = 'true';
 }
 
@@ -453,7 +467,7 @@ function addDragSelection() {
 function addEmptyClickHandler() {
     const filesView = document.querySelector('.files-view');
     if (!filesView || filesView.dataset.clickHandlerAdded) return;
-    
+
     filesView.addEventListener('click', (e) => {
         // Don't deselect if clicking on:
         // - A grid item or its children
@@ -462,14 +476,14 @@ function addEmptyClickHandler() {
         // - Sort options
         // - Table headers
         // - View toolbar
-        if (e.target.closest('.grid-item') || 
+        if (e.target.closest('.grid-item') ||
             e.target.closest('.file-row') ||
             e.target.closest('input[type="checkbox"]') ||
             e.target.closest('.view-toolbar') ||
             e.target.closest('th')) {
             return;
         }
-        
+
         // If we get here, it's an empty space click - deselect all
         const filelistDiv = document.getElementById('filelist');
         if (filelistDiv) {
@@ -480,22 +494,22 @@ function addEmptyClickHandler() {
             updateActionButtons();
         }
     }, false);
-    
+
     filesView.dataset.clickHandlerAdded = 'true';
 }
 
 // Context menu
 function showContextMenu(event, path) {
     event.preventDefault();
-    
+
     const item = allItems.find(i => (i.path || i.name) === path);
     if (!item) return;
 
     contextItemPath = path;
-    
+
     const ctxDownload = document.getElementById('ctxDownload');
     const ctxDelete = document.getElementById('ctxDelete');
-    
+
     ctxDownload.style.display = 'block';
 
     contextMenu.style.left = event.clientX + 'px';
@@ -520,7 +534,7 @@ document.getElementById('ctxDelete').addEventListener('click', () => {
 // Action functions
 function updateActionButtons() {
     const checkboxes = document.querySelectorAll('input[name="selectedFiles"]:checked');
-    
+
     if (checkboxes.length > 0) {
         deleteSelectedBtn.style.display = 'block';
         downloadSelectedBtn.style.display = 'block';
@@ -538,19 +552,19 @@ async function deleteSelected() {
 
     if (items.length === 0) return;
 
-    const confirmMsg = items.length === 1 
-        ? `Delete "${items[0]}"?` 
+    const confirmMsg = items.length === 1
+        ? `Delete "${items[0]}"?`
         : `Delete ${items.length} items?`;
 
     if (!confirm(confirmMsg)) return;
 
     try {
-        const response = await fetch('/delete-batch', {
+        const response = await apiFetch('/delete-batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ items })
         });
-
+        if (!response) return;
         if (!response.ok) throw new Error('Delete failed');
         loadFiles();
     } catch (err) {
@@ -562,7 +576,8 @@ async function deleteSelected() {
 async function downloadSingle(filename) {
     try {
         const actualFilename = filename.includes('/') ? filename.split('/').pop() : filename;
-        const response = await fetch(`/uploads/${encodeURIComponent(filename)}`);
+        const response = await apiFetch(`/uploads/${encodeURIComponent(filename)}`);
+        if (!response) return;
         if (!response.ok) throw new Error('Download failed');
 
         const blob = await response.blob();
@@ -584,7 +599,8 @@ async function deleteSingle(filename) {
     if (!confirm(`Delete "${filename}"?`)) return;
 
     try {
-        const response = await fetch(`/uploads/delete/${encodeURIComponent(filename)}`);
+        const response = await apiFetch(`/uploads/delete/${encodeURIComponent(filename)}`);
+        if (!response) return;
         if (!response.ok) throw new Error('Delete failed');
         loadFiles();
     } catch (err) {
@@ -599,18 +615,18 @@ async function downloadSelected() {
 
     if (items.length === 0) return;
 
-        if (items.length === 1) {
+    if (items.length === 1) {
         downloadSingle(items[0]);  // Uses /uploads/<filename>
         return;
     }
 
     try {
-        const response = await fetch('/download-batch', {
+        const response = await apiFetch('/download-batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ items })
         });
-
+        if (!response) return;
         if (!response.ok) throw new Error('Download failed');
 
         const blob = await response.blob();

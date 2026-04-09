@@ -7,17 +7,29 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Move up one level to get to root
 const rootDir = path.join(__dirname, '..');
-const uploadsDir = path.join(rootDir, 'uploads');
+const baseUploadsDir = path.join(rootDir, 'uploads');
 
-// Ensure uploads directory exists
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
+// Ensure base uploads directory exists
+if (!fs.existsSync(baseUploadsDir)) {
+    fs.mkdirSync(baseUploadsDir, { recursive: true });
 }
 
 export default class LocalStorageProvider {
-    constructor() {
-        console.log('Initialized Local Storage Provider');
-        
+    constructor(userId) {
+        if (!userId) throw new Error('LocalStorageProvider requires a userId');
+        this.userId = String(userId);
+
+        // Each user gets their own subdirectory
+        const uploadsDir = path.join(baseUploadsDir, this.userId);
+        this.uploadsDir = uploadsDir;
+
+        // Ensure user's upload directory exists
+        if (!fs.existsSync(uploadsDir)) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+
+        console.log(`Initialized Local Storage Provider for user ${this.userId}`);
+
         // LOCAL STORAGE MULTER CONFIG
         this.storage = multer.diskStorage({
             destination: (req, file, cb) => {
@@ -30,23 +42,29 @@ export default class LocalStorageProvider {
                 }
 
                 let baseUploadDir = uploadsDir;
-                
+
                 // Get the upload path from request (e.g., 'folder1/folder2')
                 const uploadPath = req.uploadPath || '';
-                
+
                 // If uploadPath is provided, prepend it to baseUploadDir
                 if (uploadPath) {
                     baseUploadDir = path.join(uploadsDir, uploadPath);
                     // Create the base upload directory if it doesn't exist
                     fs.mkdirSync(baseUploadDir, { recursive: true });
                 }
-                
+
+                // Security: ensure path is still within this user's uploads dir
+                const realBase = path.resolve(baseUploadDir);
+                if (!realBase.startsWith(path.resolve(uploadsDir))) {
+                    return cb(new Error('Invalid upload path'));
+                }
+
                 let filepath = file.originalname;
-                
+
                 //console.log(filepath);
                 filepath = path.normalize(filepath).replace(/(\.\.(\/|\\|))/g, '');
                 //console.log(filepath);
-                
+
                 let fileDir = path.dirname(filepath);
                 console.log('Original folder:', fileDir);
 
@@ -56,7 +74,7 @@ export default class LocalStorageProvider {
                 if (fileDir !== '.') {
                     // Check if we've already mapped this folder in this request
                     mappedFolder = req.uploadedFolders[fileDir];
-                    
+
                     if (!mappedFolder) {
                         // First file from this folder - check if folder exists
                         mappedFolder = this.getAvailableFoldernameSync(fileDir, baseUploadDir);
@@ -68,19 +86,19 @@ export default class LocalStorageProvider {
 
                 const finalDir = mappedFolder === '.' ? baseUploadDir : path.join(baseUploadDir, mappedFolder);
                 console.log('Final directory:', finalDir);
-                
-                // Verify the resolved path is still within uploadsDir (security check)
+
+                // Verify the resolved path is still within this user's uploadsDir (security check)
                 const realPath = path.resolve(finalDir);
                 if (!realPath.startsWith(path.resolve(uploadsDir))) {
                     return cb(new Error('Invalid file path'));
                 }
-                
+
                 fs.mkdirSync(finalDir, { recursive: true });
-                
+
                 // Store the destination directory for this file using a unique key
                 const fileKey = `${file.fieldname}_${file.originalname}`;
                 req.fileDestinations[fileKey] = finalDir;
-                
+
                 cb(null, finalDir);
             },
             filename: (req, file, cb) => {
@@ -93,7 +111,7 @@ export default class LocalStorageProvider {
                 cb(null, uniqueName);
             }
         });
-        
+
         this.upload = multer({ preservePath: true, storage: this.storage });
     }
 
@@ -103,7 +121,8 @@ export default class LocalStorageProvider {
      * @param {string} originalName 
      * @param {string} directory - Directory to check for duplicates
      */
-    getAvailableFilenameSync(originalName, directory = uploadsDir) {
+    getAvailableFilenameSync(originalName, directory) {
+        directory = directory || this.uploadsDir;
         let name = originalName;
         let ext = path.extname(name);
         let base = path.basename(name, ext);
@@ -121,7 +140,8 @@ export default class LocalStorageProvider {
      * Only checks at uploads root level
      * @param {string} folderName 
      */
-    getAvailableFoldernameSync(folderName, baseUploadDir = uploadsDir) {
+    getAvailableFoldernameSync(folderName, baseUploadDir) {
+        baseUploadDir = baseUploadDir || this.uploadsDir;
         let name = folderName;
         let counter = 1;
 
@@ -137,6 +157,7 @@ export default class LocalStorageProvider {
      * @param {string} originalName 
      */
     async getAvailableFilename(originalName) {
+        const uploadsDir = this.uploadsDir;
         let name = originalName;
         let ext = path.extname(name);
         let base = path.basename(name, ext);
@@ -155,7 +176,13 @@ export default class LocalStorageProvider {
      * @returns {number} 1 for file, -1 for directory, null if not found
      */
     fileOrDir(filename) {
+        const uploadsDir = this.uploadsDir;
         const targetPath = path.join(uploadsDir, filename);
+
+        // Security: ensure resolved path stays within this user's directory
+        if (!path.resolve(targetPath).startsWith(path.resolve(uploadsDir))) {
+            return null;
+        }
 
         try {
             const stats = fs.statSync(targetPath);
@@ -178,11 +205,12 @@ export default class LocalStorageProvider {
      * @param {string} currentPath - Current folder path (empty string for root)
      */
     async list(currentPath = '') {
+        const uploadsDir = this.uploadsDir;
         try {
             // Resolve the full directory path
             const targetDir = currentPath ? path.join(uploadsDir, currentPath) : uploadsDir;
-            
-            // Security check: prevent directory traversal
+
+            // Security check: prevent directory traversal outside user's directory
             const realPath = path.resolve(targetDir);
             if (!realPath.startsWith(path.resolve(uploadsDir))) {
                 throw new Error('Invalid path');
@@ -194,8 +222,8 @@ export default class LocalStorageProvider {
             for (const file of files) {
                 const filePath = path.join(targetDir, file.name);
                 const stats = await fs.promises.stat(filePath);
-                
-                // Build the relative path from uploads directory
+
+                // Build the relative path from the user's uploads directory
                 const relativePath = path.relative(uploadsDir, filePath).replace(/\\/g, '/');
 
                 items.push({
@@ -210,7 +238,7 @@ export default class LocalStorageProvider {
                 });
             }
 
-            console.log('Listed items in', currentPath || 'root:', items);
+            console.log(`Listed items for user ${this.userId} in`, currentPath || 'root:', items.length, 'items');
             return items;
         } catch (error) {
             console.error('Error reading directory:', error.message);
@@ -235,7 +263,7 @@ export default class LocalStorageProvider {
     getFileType(filename) {
         const ext = path.extname(filename).toLowerCase().slice(1);
         if (!ext) return 'unknown';
-        
+
         const typeMap = {
             'pdf': 'PDF',
             'doc': 'Word', 'docx': 'Word',
@@ -247,7 +275,7 @@ export default class LocalStorageProvider {
             'mp4': 'Video', 'avi': 'Video', 'mov': 'Video', 'mkv': 'Video',
             'mp3': 'Audio', 'wav': 'Audio', 'flac': 'Audio'
         };
-        
+
         return typeMap[ext] || ext.toUpperCase();
     }
 
@@ -270,6 +298,7 @@ export default class LocalStorageProvider {
      * @param {stream} stream - Writable stream to write to
      */
     async downloadToStream(filename, stream) {
+        const uploadsDir = this.uploadsDir;
         const filePath = path.join(uploadsDir, filename);
 
         try {
@@ -278,7 +307,7 @@ export default class LocalStorageProvider {
                 console.log('Streaming file:', filePath);
                 const readStream = fs.createReadStream(filePath);
                 readStream.pipe(stream);
-                
+
                 return new Promise((resolve, reject) => {
                     readStream.on('end', resolve);
                     readStream.on('error', reject);
@@ -314,6 +343,7 @@ export default class LocalStorageProvider {
      * @param {function} callback - Callback function(err)
      */
     deleteFileOrFolder(filename, callback) {
+        const uploadsDir = this.uploadsDir;
         const filePath = path.join(uploadsDir, filename);
 
         try {
@@ -372,6 +402,7 @@ export default class LocalStorageProvider {
      * @param {object} res - Express response object
      */
     downloadFile(filename, res) {
+        const uploadsDir = this.uploadsDir;
         const filePath = path.join(uploadsDir, filename);
 
         try {
@@ -411,6 +442,7 @@ export default class LocalStorageProvider {
      * @returns {Promise<Buffer>} - Promise resolving to the file/folder data as buffer
      */
     async getFileAsBuffer(filename) {
+        const uploadsDir = this.uploadsDir;
         try {
             const filePath = path.join(uploadsDir, filename);
             const type = this.fileOrDir(filename);
@@ -423,7 +455,7 @@ export default class LocalStorageProvider {
             } else if (type === -1) {
                 // It's a folder - create zip and return as buffer
                 console.log('Creating zip for batch:', filePath);
-                
+
                 return new Promise((resolve, reject) => {
                     const chunks = [];
                     const archive = archiver('zip', {

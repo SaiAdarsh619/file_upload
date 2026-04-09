@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link rel="stylesheet" href="/styles.css">
     <script src="/script.js" defer></script>
 </head>
+
 <body>
     <div class="app-container">
         <!-- Header -->
@@ -15,6 +17,17 @@
             <div class="header-actions">
                 <input type="text" id="searchInput" placeholder="Search..." class="search-input">
                 <button id="viewToggle" class="view-toggle-btn" title="Toggle view">≡</button>
+                <div class="user-info">
+                    <span class="user-avatar">
+                        <%= user.username.charAt(0).toUpperCase() %>
+                    </span>
+                    <span class="user-name">
+                        <%= user.username %>
+                    </span>
+                    <form method="POST" action="/logout" style="display:inline;">
+                        <button type="submit" class="logout-btn" title="Sign out">⎋ Logout</button>
+                    </form>
+                </div>
             </div>
         </header>
 
@@ -42,10 +55,12 @@
             <div class="toolbar">
                 <div id="breadcrumb" class="breadcrumb"></div>
                 <div class="toolbar-actions">
-                    <button id="downloadSelectedBtn" class="toolbar-btn" onclick="downloadSelected()" style="display: none;">
+                    <button id="downloadSelectedBtn" class="toolbar-btn" onclick="downloadSelected()"
+                        style="display: none;">
                         Download
                     </button>
-                    <button id="deleteSelectedBtn" class="toolbar-btn delete" onclick="deleteSelected()" style="display: none;">
+                    <button id="deleteSelectedBtn" class="toolbar-btn delete" onclick="deleteSelected()"
+                        style="display: none;">
                         Delete
                     </button>
                 </div>
@@ -64,4 +79,5 @@
         <button class="context-item" id="ctxDelete">Delete</button>
     </div>
 </body>
+
 </html>

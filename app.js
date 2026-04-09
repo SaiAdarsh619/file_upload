@@ -4,59 +4,80 @@ import { fileURLToPath } from 'url';
 import { storageFactory } from './services/StorageFactory.js';
 import archiver from 'archiver';
 import dotenv from 'dotenv';
+import session from 'express-session';
+import connectSqlite3 from 'connect-sqlite3';
+import authRouter from './routes/auth.js';
+import { requireAuth } from './middleware/authMiddleware.js';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-console.log(__dirname);
-
 const PORT = process.env.PORT || 5000;
 const app = express();
 
-// Initialize the storage provider using factory
-const storageProvider = storageFactory.create();
+// ─── Session Setup ───────────────────────────────────────────────────────────
+const SQLiteStore = connectSqlite3(session);
 
-// Middleware and view engine setup
+app.use(session({
+    store: new SQLiteStore({
+        db: 'sessions.db',
+        dir: path.join(__dirname, 'data')
+    }),
+    secret: process.env.SESSION_SECRET || 'change-me-in-production',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        httpOnly: true
+    }
+}));
+
+// ─── Middleware & View Engine ─────────────────────────────────────────────────
 app.set('view engine', 'ejs');
 app.use(express.static(path.join(__dirname, 'views', 'static')));
-
-// Add body parsing middleware to capture form fields sent by client
-// This allows us to read webkitRelativePath values from req.body
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
+// ─── Auth Routes (public) ─────────────────────────────────────────────────────
+app.use('/', authRouter);
 
-app.get('/', (req, res) => {
-    res.render('index');
+// ─── Helper: get per-request storage provider ────────────────────────────────
+function getStorage(req) {
+    return storageFactory.create(req.session.user.id);
+}
+
+// ─── Protected Routes ─────────────────────────────────────────────────────────
+
+app.get('/', requireAuth, (req, res) => {
+    res.render('index', { user: req.session.user });
 });
 
-app.get('/files', async (req, res) => {
+app.get('/files', requireAuth, async (req, res) => {
     try {
-        const currentPath = req.query.path || ''; // Get current folder path from query
-        const file_list = await storageProvider.list(currentPath);
+        const currentPath = req.query.path || '';
+        const file_list = await getStorage(req).list(currentPath);
         res.json(file_list);
     } catch (error) {
+        console.error('List error:', error);
         res.status(500).json({ error: 'Failed to retrieve file list' });
     }
 });
 
-app.get('/uploads/:filename', (req, res) => {
-    storageProvider.downloadFile(req.params.filename, res);
+app.get('/uploads/:filename', requireAuth, (req, res) => {
+    getStorage(req).downloadFile(req.params.filename, res);
 });
 
-app.get('/uploads/delete/:filename', async (req, res) => {
+app.get('/uploads/delete/:filename', requireAuth, async (req, res) => {
     try {
         const filename = req.params.filename;
 
-        // Sanitize filename to prevent directory traversal
         if (filename.includes('..') || filename.includes('\\')) {
             return res.status(400).json({ error: 'Invalid filename' });
         }
 
         await new Promise((resolve) => {
-            storageProvider.deleteFileOrFolder(filename, (err) => {
+            getStorage(req).deleteFileOrFolder(filename, (err) => {
                 if (err) {
                     console.error(`Error deleting ${filename}:`, err);
                     res.status(500).json({ error: 'Error deleting file or directory', message: err.message });
@@ -74,7 +95,7 @@ app.get('/uploads/delete/:filename', async (req, res) => {
 });
 
 // Batch delete endpoint
-app.post('/delete-batch', async (req, res) => {
+app.post('/delete-batch', requireAuth, async (req, res) => {
     try {
         const { items } = req.body;
 
@@ -82,17 +103,17 @@ app.post('/delete-batch', async (req, res) => {
             return res.status(400).json({ error: 'No items specified' });
         }
 
+        const storage = getStorage(req);
         const results = [];
-        
+
         for (const item of items) {
-            // Sanitize item name to prevent directory traversal
             if (item.includes('..') || item.includes('\\')) {
                 results.push({ item, status: 'error', message: 'Invalid item name' });
                 continue;
             }
 
             await new Promise((resolve) => {
-                storageProvider.deleteFileOrFolder(item, (err) => {
+                storage.deleteFileOrFolder(item, (err) => {
                     if (err) {
                         console.error(`Error deleting ${item}:`, err);
                         results.push({ item, status: 'error', message: err.message });
@@ -113,7 +134,7 @@ app.post('/delete-batch', async (req, res) => {
 });
 
 // Batch download endpoint
-app.post('/download-batch', async (req, res) => {
+app.post('/download-batch', requireAuth, async (req, res) => {
     try {
         const { items } = req.body;
 
@@ -121,13 +142,10 @@ app.post('/download-batch', async (req, res) => {
             return res.status(400).json({ error: 'No items specified' });
         }
 
-        // Set up zip response
         res.setHeader('Content-Disposition', 'attachment; filename="downloads.zip"');
         res.setHeader('Content-Type', 'application/zip');
 
-        const archive = archiver('zip', {
-            zlib: { level: 9 }
-        });
+        const archive = archiver('zip', { zlib: { level: 9 } });
 
         archive.on('error', (err) => {
             console.error('Archive error:', err);
@@ -138,29 +156,20 @@ app.post('/download-batch', async (req, res) => {
 
         archive.pipe(res);
 
-        // Download each item and add to archive
+        const storage = getStorage(req);
+
         for (const item of items) {
-            // Sanitize item name to prevent directory traversal
             if (item.includes('..') || item.includes('\\')) {
                 console.warn(`Skipping invalid item: ${item}`);
                 continue;
             }
 
             try {
-                console.log(`Adding to batch download: ${item}`);
-                
-                // Get file/folder as buffer using the provider's helper method
-                const buffer = await storageProvider.getFileAsBuffer(item);
-                
-                // Extract just the filename from the path (remove folder structure)
+                const buffer = await storage.getFileAsBuffer(item);
                 const filename = path.basename(item);
-                
-                // Add to archive with just the filename (not the full path)
                 archive.append(buffer, { name: filename });
-                console.log(`Added to archive: ${filename}`);
             } catch (error) {
                 console.error(`Error adding ${item} to archive:`, error);
-                // Continue with next item
             }
         }
 
@@ -173,12 +182,12 @@ app.post('/download-batch', async (req, res) => {
     }
 });
 
-app.post('/upload', (req, res, next) => {
-    // Get uploadPath from query parameter
+app.post('/upload', requireAuth, (req, res, next) => {
     req.uploadPath = req.query.uploadPath || '';
     console.log('Upload path from query:', req.uploadPath);
-    
-    storageProvider.upload.array('files')(req, res, (err) => {
+
+    const storage = getStorage(req);
+    storage.upload.array('files')(req, res, (err) => {
         if (err) {
             console.error('Upload error:', err);
             return res.status(500).json({ error: 'Upload failed' });
@@ -191,5 +200,5 @@ app.listen(PORT, (err) => {
     if (err) {
         console.log(err);
     }
-    console.log('server is listening at port', PORT);
+    console.log('Server is listening at port', PORT);
 });
