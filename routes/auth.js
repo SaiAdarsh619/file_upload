@@ -70,14 +70,33 @@ router.post('/login', async (req, res) => {
         return res.render('login', { error: 'Invalid username or password.', registered: false });
     }
 
-    // Store safe user data in session (never store password_hash)
-    req.session.user = { id: user.id, username: user.username };
-    req.session.save(() => res.redirect('/'));
+    // Regenerate session to prevent session fixation attacks
+    req.session.regenerate((err) => {
+        if (err) {
+            console.error('Session regeneration error:', err);
+            return res.render('login', { error: 'Login failed. Please try again.', registered: false });
+        }
+
+        // Store safe user data in session (never store password_hash)
+        req.session.user = { id: user.id, username: user.username };
+        req.session.save((err) => {
+            if (err) {
+                console.error('Session save error:', err);
+                return res.render('login', { error: 'Login failed. Please try again.', registered: false });
+            }
+            res.redirect('/');
+        });
+    });
 });
 
 // POST /logout
 router.post('/logout', (req, res) => {
-    req.session.destroy(() => res.redirect('/login'));
+    req.session.destroy((err) => {
+        if (err) {
+            console.error('Session destruction error:', err);
+        }
+        res.redirect('/login');
+    });
 });
 
 export default router;
