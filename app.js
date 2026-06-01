@@ -33,6 +33,13 @@ app.use(session({
     }
 }));
 
+app.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+});
+
 // ─── Middleware & View Engine ─────────────────────────────────────────────────
 app.set('view engine', 'ejs');
 app.use(express.static(path.join(__dirname, 'views', 'static')));
