@@ -79,13 +79,6 @@ router.post('/login', async (req, res) => {
 
         // Store safe user data in session (never store password_hash)
         req.session.user = { id: user.id, username: user.username };
-        req.session.save((err) => {
-            if (err) {
-                console.error('Session save error:', err);
-                return res.render('login', { error: 'Login failed. Please try again.', registered: false });
-            }
-            res.redirect('/');
-        });
     });
 });
 
@@ -95,6 +88,7 @@ router.post('/logout', (req, res) => {
         if (err) {
             console.error('Session destruction error:', err);
         }
+        res.clearCookie('connect.sid')
         res.redirect('/login');
     });
 });
