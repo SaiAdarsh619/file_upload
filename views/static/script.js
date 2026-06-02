@@ -1,5 +1,4 @@
 const filelistDiv = document.getElementById('filelist');
-const uploadForm = document.getElementById('uploadForm');
 const errorDiv = document.getElementById('error');
 const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
 const downloadSelectedBtn = document.getElementById('downloadSelectedBtn');
@@ -8,12 +7,23 @@ const breadcrumbDiv = document.getElementById('breadcrumb');
 const viewToggleBtn = document.getElementById('viewToggle');
 const contextMenu = document.getElementById('contextMenu');
 
+// Drop zone elements
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const folderInput = document.getElementById('folderInput');
+const stagedQueue = document.getElementById('stagedQueue');
+const stagedList = document.getElementById('stagedList');
+const stagedCount = document.getElementById('stagedCount');
+
 let allItems = [];
 let currentPath = '';
 let currentSortBy = 'name';
 let currentSortOrder = 'asc';
 let viewMode = 'grid';
 let contextItemPath = '';
+
+// Staged files for upload
+let stagedFiles = [];
 
 // File icons based on extension
 const fileIcons = {
@@ -33,14 +43,180 @@ function getFileIcon(filename) {
     return fileIcons[ext] || '📄';
 }
 
-// View toggle
+// ─── Drop Zone ────────────────────────────────────────────────────────────────
+
+// Drag & drop
+['dragenter', 'dragover'].forEach(evt => {
+    dropZone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('drop-zone--active');
+    });
+});
+
+['dragleave', 'drop'].forEach(evt => {
+    dropZone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drop-zone--active');
+    });
+});
+
+dropZone.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer;
+    if (dt.items) {
+        // Use DataTransferItemList to handle folders
+        const entries = [];
+        for (let i = 0; i < dt.items.length; i++) {
+            const entry = dt.items[i].webkitGetAsEntry ? dt.items[i].webkitGetAsEntry() : null;
+            if (entry) entries.push(entry);
+        }
+        if (entries.length > 0) {
+            processEntries(entries);
+            return;
+        }
+    }
+    // Fallback: just use files
+    addFilesToQueue(Array.from(dt.files));
+});
+
+// Recursively read directory entries from drag-drop
+async function processEntries(entries) {
+    const files = [];
+
+    async function readEntry(entry, path) {
+        if (entry.isFile) {
+            const file = await new Promise((resolve) => entry.file(resolve));
+            // Attach the relative path for folder structure
+            Object.defineProperty(file, 'relativePath', { value: path + file.name });
+            files.push(file);
+        } else if (entry.isDirectory) {
+            const reader = entry.createReader();
+            const subEntries = await new Promise((resolve) => reader.readEntries(resolve));
+            for (const sub of subEntries) {
+                await readEntry(sub, path + entry.name + '/');
+            }
+        }
+    }
+
+    for (const entry of entries) {
+        await readEntry(entry, '');
+    }
+    addFilesToQueue(files);
+}
+
+// Click browse buttons
+fileInput.addEventListener('change', () => {
+    addFilesToQueue(Array.from(fileInput.files));
+    fileInput.value = '';
+});
+
+folderInput.addEventListener('change', () => {
+    const files = Array.from(folderInput.files).map(f => {
+        Object.defineProperty(f, 'relativePath', { value: f.webkitRelativePath });
+        return f;
+    });
+    addFilesToQueue(files);
+    folderInput.value = '';
+});
+
+// Manage staged queue
+function addFilesToQueue(files) {
+    for (const f of files) {
+        stagedFiles.push(f);
+    }
+    renderStagedQueue();
+}
+
+function removeFromQueue(index) {
+    stagedFiles.splice(index, 1);
+    renderStagedQueue();
+}
+
+function clearQueue() {
+    stagedFiles = [];
+    renderStagedQueue();
+}
+
+function renderStagedQueue() {
+    if (stagedFiles.length === 0) {
+        stagedQueue.style.display = 'none';
+        return;
+    }
+    stagedQueue.style.display = 'block';
+    stagedCount.textContent = `${stagedFiles.length} file${stagedFiles.length !== 1 ? 's' : ''} ready to upload`;
+
+    let html = '';
+    stagedFiles.forEach((f, i) => {
+        const displayName = f.relativePath || f.name;
+        const icon = getFileIcon(displayName);
+        const size = formatSize(f.size);
+        html += `
+            <li class="staged-item">
+                <span class="staged-item-icon">${icon}</span>
+                <span class="staged-item-name" title="${displayName}">${displayName}</span>
+                <span class="staged-item-size">${size}</span>
+                <button class="staged-item-remove" onclick="removeFromQueue(${i})" title="Remove">✕</button>
+            </li>
+        `;
+    });
+    stagedList.innerHTML = html;
+}
+
+function formatSize(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+    let size = bytes;
+    while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+    return size.toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+}
+
+async function uploadStaged() {
+    if (stagedFiles.length === 0) return;
+
+    const formData = new FormData();
+    for (const file of stagedFiles) {
+        const name = file.relativePath || file.name;
+        formData.append('files', file, name);
+    }
+
+    const uploadUrl = currentPath
+        ? `/upload?uploadPath=${encodeURIComponent(currentPath)}`
+        : '/upload';
+
+    try {
+        const uploadBtn = document.getElementById('uploadBtn');
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = '⏳ Uploading…';
+
+        const response = await apiFetch(uploadUrl, { method: 'POST', body: formData });
+        if (!response) return;
+        if (!response.ok) throw new Error('Upload failed');
+
+        stagedFiles = [];
+        renderStagedQueue();
+        loadFiles();
+    } catch (err) {
+        errorDiv.textContent = err.message;
+        errorDiv.style.display = 'block';
+    } finally {
+        const uploadBtn = document.getElementById('uploadBtn');
+        if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = '⬆ Upload';
+        }
+    }
+}
+
+// ─── View toggle ──────────────────────────────────────────────────────────────
+
 viewToggleBtn.addEventListener('click', () => {
     viewMode = viewMode === 'grid' ? 'list' : 'grid';
     updateViewToggleButton();
     renderFileList();
 });
 
-// Update view toggle button text/icon
 function updateViewToggleButton() {
     if (viewMode === 'grid') {
         viewToggleBtn.textContent = '☰ List';
@@ -51,46 +227,8 @@ function updateViewToggleButton() {
     }
 }
 
-// Upload form
-uploadForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fileInput = document.getElementById('file');
-    const folderInput = document.getElementById('folder');
+// ─── Sorting & Filtering ──────────────────────────────────────────────────────
 
-    if (!fileInput.files.length && !folderInput.files.length) {
-        errorDiv.textContent = 'Please select files or a folder to upload';
-        errorDiv.style.display = 'block';
-        return;
-    }
-
-    const formData = new FormData();
-    for (const file of fileInput.files) {
-        formData.append('files', file);
-    }
-    for (const file of folderInput.files) {
-        formData.append('files', file, file.webkitRelativePath);
-    }
-
-    try {
-        const uploadUrl = currentPath
-            ? `/upload?uploadPath=${encodeURIComponent(currentPath)}`
-            : '/upload';
-
-        const response = await apiFetch(uploadUrl, { method: 'POST', body: formData });
-        if (!response) return;
-        if (!response.ok) throw new Error('Upload failed');
-
-        fileInput.value = '';
-        folderInput.value = '';
-        errorDiv.style.display = 'none';
-        loadFiles();
-    } catch (err) {
-        errorDiv.textContent = err.message;
-        errorDiv.style.display = 'block';
-    }
-});
-
-// Sorting
 function sortFiles(items, sortBy, sortOrder) {
     const sorted = [...items];
 
@@ -137,28 +275,28 @@ function changeSortBy(sortBy) {
     renderFileList();
 }
 
-// Filter
 function filterItems(items, searchTerm) {
     if (!searchTerm) return items;
     const term = searchTerm.toLowerCase();
     return items.filter(item => item.name.toLowerCase().includes(term));
 }
 
-// ─── Auth-aware fetch wrapper ─────────────────────────────────────────────
+// ─── Auth-aware fetch wrapper ─────────────────────────────────────────────────
+
 async function apiFetch(url, options = {}) {
     const res = await fetch(url, options);
     if (res.status === 401) {
-        // Session expired — redirect to login
         window.location.href = '/login';
         return null;
     }
     return res;
 }
 
-// Load files
+// ─── Load files ───────────────────────────────────────────────────────────────
+
 async function loadFiles() {
     try {
-        const url = currentPath ? `/files?path=${encodeURIComponent(currentPath)}` : '/files';
+        const url = currentPath ? `/api/files?path=${encodeURIComponent(currentPath)}` : '/api/files';
         const response = await apiFetch(url);
         if (!response) return;
         if (!response.ok) throw new Error('Failed to load files');
@@ -173,8 +311,8 @@ async function loadFiles() {
     }
 }
 
+// ─── Breadcrumb ───────────────────────────────────────────────────────────────
 
-// Breadcrumb
 function renderBreadcrumb() {
     let html = '<div class="breadcrumb">';
 
@@ -207,7 +345,8 @@ function goBack() {
     navigateToPath(currentPath);
 }
 
-// Render file list
+// ─── Render file list ─────────────────────────────────────────────────────────
+
 function renderFileList() {
     const searchTerm = searchInput.value;
     let items = filterItems(allItems, searchTerm);
@@ -228,7 +367,6 @@ function renderFileList() {
         renderListView(items);
     }
 
-    // Add handlers (only once - they check for existing handlers)
     addEmptyClickHandler();
     addDragSelection();
 }
@@ -325,20 +463,18 @@ function renderListView(items) {
     updateActionButtons();
 }
 
-// Click handlers
+// ─── Click handlers ───────────────────────────────────────────────────────────
+
 function handleGridItemBoxClick(event, path, isFolder) {
-    // If clicking on checkbox, let it handle normally
     if (event.target.closest('input[class="grid-item"]')) return;
 
-    // If clicking on the name/icon and it's a folder, open it
-    if (event.target.closest('.grid-item-icon') || event.target.closest('.grid-item-name')) {
+    if (event.target.closest('.grid-item-name')) {
         if (isFolder) {
             navigateToPath(path);
             return;
         }
     }
 
-    // Otherwise, select the item
     const checkbox = event.currentTarget.querySelector('input[type="checkbox"]');
     if (checkbox) {
         checkbox.checked = !checkbox.checked;
@@ -347,18 +483,15 @@ function handleGridItemBoxClick(event, path, isFolder) {
 }
 
 function handleListRowClick(event, path, isFolder) {
-    // If clicking on checkbox, let it handle normally
     if (event.target.closest('input[type="checkbox"]')) return;
 
-    // If clicking on the name cell and it's a folder, open it
-    if (event.target.closest('.name-cell')) {
+    if (event.target.closest('.file-name')) {
         if (isFolder) {
             navigateToPath(path);
             return;
         }
     }
 
-    // Otherwise, select the item
     const checkbox = event.currentTarget.querySelector('input[type="checkbox"]');
     if (checkbox) {
         checkbox.checked = !checkbox.checked;
@@ -366,7 +499,8 @@ function handleListRowClick(event, path, isFolder) {
     }
 }
 
-// Drag selection - rewritten to handle scrollable containers
+// ─── Drag selection ───────────────────────────────────────────────────────────
+
 function addDragSelection() {
     const filesView = document.querySelector('.files-view');
     const container = filelistDiv;
@@ -375,7 +509,7 @@ function addDragSelection() {
 
     let startX = 0, startY = 0;
     let isSelectingNow = false;
-    const MIN_DRAG_DISTANCE = 5; // Minimum pixels to drag before starting selection
+    const MIN_DRAG_DISTANCE = 5;
 
     const selectionBox = document.querySelector('.selection-box') || (() => {
         const box = document.createElement('div');
@@ -385,7 +519,6 @@ function addDragSelection() {
     })();
 
     container.addEventListener('mousedown', (e) => {
-        // Don't start selection on checkbox or toolbar
         if (e.button !== 0) return;
         if (e.target.closest('input[type="checkbox"], .view-toolbar, th')) return;
 
@@ -400,27 +533,23 @@ function addDragSelection() {
         const currentX = e.clientX;
         const currentY = e.clientY;
 
-        // Only start showing selection box after minimum drag distance
         const dragDistance = Math.sqrt(
             Math.pow(currentX - startX, 2) + Math.pow(currentY - startY, 2)
         );
 
         if (dragDistance < MIN_DRAG_DISTANCE) return;
 
-        // Calculate selection box dimensions
         const x = Math.min(startX, currentX);
         const y = Math.min(startY, currentY);
         const width = Math.abs(currentX - startX);
         const height = Math.abs(currentY - startY);
 
-        // Update selection box display
         selectionBox.style.left = x + 'px';
         selectionBox.style.top = y + 'px';
         selectionBox.style.width = width + 'px';
         selectionBox.style.height = height + 'px';
         selectionBox.style.display = 'block';
 
-        // Selection box boundaries (in viewport coordinates)
         const selectionBounds = {
             left: x,
             right: x + width,
@@ -428,14 +557,10 @@ function addDragSelection() {
             bottom: y + height
         };
 
-        // Check which items are in the selection area
         const items = container.querySelectorAll('[data-path]');
         items.forEach(item => {
-            // Get item position in viewport coordinates
             const itemRect = item.getBoundingClientRect();
 
-            // Check if item intersects with selection box
-            // An item is selected if ANY part of it overlaps with the selection box
             const isIntersecting = !(
                 itemRect.right < selectionBounds.left ||
                 itemRect.left > selectionBounds.right ||
@@ -443,7 +568,6 @@ function addDragSelection() {
                 itemRect.top > selectionBounds.bottom
             );
 
-            // Check the item's checkbox
             const checkbox = item.querySelector('input[type="checkbox"]');
             if (checkbox) {
                 checkbox.checked = isIntersecting;
@@ -463,19 +587,13 @@ function addDragSelection() {
     filesView.dataset.dragHandlerAdded = 'true';
 }
 
-// Deselect all items on empty area click
+// ─── Deselect on empty click ──────────────────────────────────────────────────
+
 function addEmptyClickHandler() {
     const filesView = document.querySelector('.files-view');
     if (!filesView || filesView.dataset.clickHandlerAdded) return;
 
     filesView.addEventListener('click', (e) => {
-        // Don't deselect if clicking on:
-        // - A grid item or its children
-        // - A table row or its cells
-        // - A checkbox
-        // - Sort options
-        // - Table headers
-        // - View toolbar
         if (e.target.closest('.grid-item') ||
             e.target.closest('.file-row') ||
             e.target.closest('input[type="checkbox"]') ||
@@ -484,7 +602,6 @@ function addEmptyClickHandler() {
             return;
         }
 
-        // If we get here, it's an empty space click - deselect all
         const filelistDiv = document.getElementById('filelist');
         if (filelistDiv) {
             const checkboxes = filelistDiv.querySelectorAll('input[name="selectedFiles"]');
@@ -498,7 +615,8 @@ function addEmptyClickHandler() {
     filesView.dataset.clickHandlerAdded = 'true';
 }
 
-// Context menu
+// ─── Context menu ─────────────────────────────────────────────────────────────
+
 function showContextMenu(event, path) {
     event.preventDefault();
 
@@ -508,8 +626,6 @@ function showContextMenu(event, path) {
     contextItemPath = path;
 
     const ctxDownload = document.getElementById('ctxDownload');
-    const ctxDelete = document.getElementById('ctxDelete');
-
     ctxDownload.style.display = 'block';
 
     contextMenu.style.left = event.clientX + 'px';
@@ -531,7 +647,8 @@ document.getElementById('ctxDelete').addEventListener('click', () => {
     contextMenu.style.display = 'none';
 });
 
-// Action functions
+// ─── Action functions ─────────────────────────────────────────────────────────
+
 function updateActionButtons() {
     const checkboxes = document.querySelectorAll('input[name="selectedFiles"]:checked');
 
@@ -616,7 +733,7 @@ async function downloadSelected() {
     if (items.length === 0) return;
 
     if (items.length === 1) {
-        downloadSingle(items[0]);  // Uses /uploads/<filename>
+        downloadSingle(items[0]);
         return;
     }
 
@@ -644,12 +761,14 @@ async function downloadSelected() {
     }
 }
 
-// Search
+// ─── Search ───────────────────────────────────────────────────────────────────
+
 searchInput.addEventListener('input', () => {
     renderFileList();
 });
 
-// Initialize
+// ─── Initialize ───────────────────────────────────────────────────────────────
+
 document.addEventListener('DOMContentLoaded', () => {
     updateViewToggleButton();
     loadFiles();

@@ -6,7 +6,7 @@ const router = express.Router();
 
 // GET /register
 router.get('/register', (req, res) => {
-    if (req.session.user) return res.redirect('/');
+    if (req.session.user) return res.redirect('/files');
     res.render('register', { error: null });
 });
 
@@ -47,7 +47,7 @@ router.post('/register', async (req, res) => {
 
 // GET /login
 router.get('/login', (req, res) => {
-    if (req.session.user) return res.redirect('/');
+    if (req.session.user) return res.redirect('/files');
     const registered = req.query.registered === '1';
     res.render('login', { error: null, registered });
 });
@@ -79,13 +79,13 @@ router.post('/login', async (req, res) => {
 
         // Store safe user data in session (never store password_hash)
         req.session.user = { id: user.id, username: user.username };
-        
+
         req.session.save((err) => {
             if (err) {
                 console.error('Session save error:', err);
                 return res.render('login', { error: 'Login failed. Please try again.', registered: false });
             }
-            res.redirect('/');
+            res.redirect('/files');
         });
 
     });
@@ -97,8 +97,8 @@ router.post('/logout', (req, res) => {
         if (err) {
             console.error('Session destruction error:', err);
         }
-        res.clearCookie('connect.sid')
-        res.redirect('/login');
+        res.clearCookie('connect.sid');
+        res.redirect('/');
     });
 });
 

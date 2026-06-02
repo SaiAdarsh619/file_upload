@@ -56,11 +56,19 @@ function getStorage(req) {
 
 // ─── Protected Routes ─────────────────────────────────────────────────────────
 
-app.get('/', requireAuth, (req, res) => {
-    res.render('index', { user: req.session.user });
+// Public landing page
+app.get('/', (req, res) => {
+    if (req.session.user) return res.redirect('/files');
+    res.render('landing');
 });
 
-app.get('/files', requireAuth, async (req, res) => {
+// Protected file manager UI
+app.get('/files', requireAuth, (req, res) => {
+    res.render('files', { user: req.session.user });
+});
+
+// JSON API — list files
+app.get('/api/files', requireAuth, async (req, res) => {
     try {
         const currentPath = req.query.path || '';
         const file_list = await getStorage(req).list(currentPath);
@@ -199,7 +207,7 @@ app.post('/upload', requireAuth, (req, res, next) => {
             console.error('Upload error:', err);
             return res.status(500).json({ error: 'Upload failed' });
         }
-        res.redirect('/');
+        res.json({ success: true });
     });
 });
 

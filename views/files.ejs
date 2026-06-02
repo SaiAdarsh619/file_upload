@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Files – CloudVault</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/script.js" defer></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <h1>Files</h1>
+            <div class="header-actions">
+                <input type="text" id="searchInput" placeholder="Search..." class="search-input">
+                <button id="viewToggle" class="view-toggle-btn" title="Toggle view">≡</button>
+                <div class="user-info">
+                    <span class="user-avatar">
+                        <%= user.username.charAt(0).toUpperCase() %>
+                    </span>
+                    <span class="user-name">
+                        <%= user.username %>
+                    </span>
+                    <form method="POST" action="/logout" style="display:inline;">
+                        <button type="submit" class="logout-btn" title="Sign out">⎋ Logout</button>
+                    </form>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="app-content">
+            <!-- Upload Section (drop zone) -->
+            <div class="upload-section">
+                <div id="dropZone" class="drop-zone">
+                    <div class="drop-zone-icon">☁️</div>
+                    <p class="drop-zone-text">Drag &amp; drop files or folders here</p>
+                    <p class="drop-zone-hint">or choose what to upload</p>
+                    <div class="drop-zone-btns">
+                        <label for="fileInput" class="dz-browse-btn">📄 Browse Files</label>
+                        <input type="file" id="fileInput" multiple style="display:none;">
+                        <label for="folderInput" class="dz-browse-btn">📁 Browse Folder</label>
+                        <input type="file" id="folderInput" webkitdirectory multiple style="display:none;">
+                    </div>
+                </div>
+
+                <!-- Staged file queue -->
+                <div id="stagedQueue" class="staged-queue" style="display:none;">
+                    <div class="staged-queue-header">
+                        <span id="stagedCount" class="staged-count"></span>
+                        <div class="staged-queue-actions">
+                            <button id="clearQueueBtn" class="sq-clear-btn" onclick="clearQueue()">✕ Clear all</button>
+                            <button id="uploadBtn" class="sq-upload-btn" onclick="uploadStaged()">⬆ Upload</button>
+                        </div>
+                    </div>
+                    <ul id="stagedList" class="staged-list"></ul>
+                </div>
+
+                <div id="error" class="error-message" style="display: none;"></div>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <div id="breadcrumb" class="breadcrumb"></div>
+                <div class="toolbar-actions">
+                    <button id="downloadSelectedBtn" class="toolbar-btn" onclick="downloadSelected()"
+                        style="display: none;">
+                        Download
+                    </button>
+                    <button id="deleteSelectedBtn" class="toolbar-btn delete" onclick="deleteSelected()"
+                        style="display: none;">
+                        Delete
+                    </button>
+                </div>
+            </div>
+
+            <!-- Files View -->
+            <div class="files-view">
+                <div id="filelist" class="file-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="contextMenu" class="context-menu" style="display: none;">
+        <button class="context-item" id="ctxDownload">Download</button>
+        <button class="context-item" id="ctxDelete">Delete</button>
+    </div>
+</body>
+
+</html>
