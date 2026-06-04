@@ -27,13 +27,23 @@ cd file_upload
 
 ### 2. Install dependencies
 
+Since the project is separated into a React frontend and a Node.js backend, you must install dependencies for both:
+
+**Backend:**
 ```bash
+cd backend
+npm install
+```
+
+**Frontend:**
+```bash
+cd ../frontend
 npm install
 ```
 
 ### 3. Environment Variables Setup
 
-Create a `.env` file in the root directory. You can use the `.env.example` format (ensure you do not commit your real `.env`).
+Create a `.env` file in the `backend/` directory. You can use the `backend/.env.example` format (ensure you do not commit your real `.env`).
 
 ```ini
 # --- Storage Configuration ---
@@ -56,29 +66,39 @@ SESSION_SECRET='your-super-secret-session-key-change-in-production'
 
 ### 4. Run the application
 
-Start the server using:
+You will need to start both the backend API and the frontend UI concurrently in separate terminals.
 
+**Terminal 1 (Backend Server):**
 ```bash
+cd backend
 npm start
 ```
-*Note: This runs `node --watch app.js`, which will automatically restart the server if you modify your code.*
+*Note: This runs the server on http://localhost:5000 and watches for changes.*
 
-Alternatively, run without watch mode:
+**Terminal 2 (Frontend Server):**
 ```bash
-node app.js
+cd frontend
+npm run dev
 ```
+*Note: This runs the Vite development server and proxies API requests to the backend.*
 
 ### 5. Access the app
 
-Open your browser and navigate to:
-`http://localhost:5000`
+Open your browser and navigate to the Vite frontend URL:
+`http://localhost:5173`
 
-You will be redirected to the login page. From there, you can click "Register" to create a new account and begin uploading files.
+You will see the Landing page. From there, you can click "Register" to create a new account and begin uploading files.
 
 ## Project Structure Highlights
 
-- `app.js` — Main entry point setting up express, sessions, and routes.
+### `backend/`
+- `app.js` — Main entry point setting up express, JSON api, sessions, and routes.
 - `services/db.js` — Setup for SQLite database used for user credentials.
-- `routes/auth.js` — Routes for handling `/login`, `/register`, and `/logout`.
-- `middleware/authMiddleware.js` — Route protection and session validation.
+- `routes/auth.js` — JSON API Routes for handling `/login`, `/register`, and `/logout`.
+- `middleware/authMiddleware.js` — API route protection and session validation.
 - `services/StorageFactory.js` — Dynamically injects either Local or Azure storage for a specific logged-in user.
+
+### `frontend/`
+- Contains a standalone React SPA bootstrapped with Vite.
+- `src/components/` — React UI components including `Files.jsx` (File Dashboard), `Login.jsx`, `Register.jsx`, etc.
+- `src/AuthContext.jsx` — Global Session State manager for React.

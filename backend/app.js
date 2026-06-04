@@ -40,9 +40,7 @@ app.use((req, res, next) => {
     next();
 });
 
-// ─── Middleware & View Engine ─────────────────────────────────────────────────
-app.set('view engine', 'ejs');
-app.use(express.static(path.join(__dirname, 'views', 'static')));
+// ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -56,15 +54,13 @@ function getStorage(req) {
 
 // ─── Protected Routes ─────────────────────────────────────────────────────────
 
-// Public landing page
-app.get('/', (req, res) => {
-    if (req.session.user) return res.redirect('/files');
-    res.render('landing');
-});
-
-// Protected file manager UI
-app.get('/files', requireAuth, (req, res) => {
-    res.render('files', { user: req.session.user });
+// JSON API — check current user auth state
+app.get('/api/auth/me', (req, res) => {
+    if (req.session && req.session.user) {
+        res.json({ user: req.session.user });
+    } else {
+        res.status(401).json({ error: 'Unauthorized' });
+    }
 });
 
 // JSON API — list files

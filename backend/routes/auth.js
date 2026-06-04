@@ -4,52 +4,39 @@ import { createUser, findUserByUsername } from '../services/db.js';
 
 const router = express.Router();
 
-// GET /register
-router.get('/register', (req, res) => {
-    if (req.session.user) return res.redirect('/files');
-    res.render('register', { error: null });
-});
-
 // POST /register
 router.post('/register', async (req, res) => {
     const { username, password, confirm } = req.body;
 
     if (!username || !password || !confirm) {
-        return res.render('register', { error: 'All fields are required.' });
+        return res.status(400).json({ error: 'All fields are required.' });
     }
     if (username.length < 3 || username.length > 32) {
-        return res.render('register', { error: 'Username must be 3–32 characters.' });
+        return res.status(400).json({ error: 'Username must be 3–32 characters.' });
     }
     if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
-        return res.render('register', { error: 'Username can only contain letters, numbers, _ . -' });
+        return res.status(400).json({ error: 'Username can only contain letters, numbers, _ . -' });
     }
     if (password.length < 6) {
-        return res.render('register', { error: 'Password must be at least 6 characters.' });
+        return res.status(400).json({ error: 'Password must be at least 6 characters.' });
     }
     if (password !== confirm) {
-        return res.render('register', { error: 'Passwords do not match.' });
+        return res.status(400).json({ error: 'Passwords do not match.' });
     }
 
     const existing = findUserByUsername(username);
     if (existing) {
-        return res.render('register', { error: 'Username already taken.' });
+        return res.status(400).json({ error: 'Username already taken.' });
     }
 
     try {
         const hash = await bcrypt.hash(password, 12);
         createUser(username, hash);
-        res.redirect('/login?registered=1');
+        res.json({ success: true });
     } catch (err) {
         console.error('Register error:', err);
-        res.render('register', { error: 'Registration failed. Please try again.' });
+        res.status(500).json({ error: 'Registration failed. Please try again.' });
     }
-});
-
-// GET /login
-router.get('/login', (req, res) => {
-    if (req.session.user) return res.redirect('/files');
-    const registered = req.query.registered === '1';
-    res.render('login', { error: null, registered });
 });
 
 // POST /login
@@ -57,24 +44,24 @@ router.post('/login', async (req, res) => {
     const { username, password } = req.body;
 
     if (!username || !password) {
-        return res.render('login', { error: 'Username and password are required.', registered: false });
+        return res.status(400).json({ error: 'Username and password are required.' });
     }
 
     const user = findUserByUsername(username);
     if (!user) {
-        return res.render('login', { error: 'Invalid username or password.', registered: false });
+        return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) {
-        return res.render('login', { error: 'Invalid username or password.', registered: false });
+        return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
     // Regenerate session to prevent session fixation attacks
     req.session.regenerate((err) => {
         if (err) {
             console.error('Session regeneration error:', err);
-            return res.render('login', { error: 'Login failed. Please try again.', registered: false });
+            return res.status(500).json({ error: 'Login failed. Please try again.' });
         }
 
         // Store safe user data in session (never store password_hash)
@@ -83,9 +70,9 @@ router.post('/login', async (req, res) => {
         req.session.save((err) => {
             if (err) {
                 console.error('Session save error:', err);
-                return res.render('login', { error: 'Login failed. Please try again.', registered: false });
+                return res.status(500).json({ error: 'Login failed. Please try again.' });
             }
-            res.redirect('/files');
+            res.json({ success: true, user: req.session.user });
         });
 
     });
@@ -98,7 +85,7 @@ router.post('/logout', (req, res) => {
             console.error('Session destruction error:', err);
         }
         res.clearCookie('connect.sid');
-        res.redirect('/');
+        res.json({ success: true });
     });
 });
 
