@@ -13,7 +13,7 @@ dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.BACKEND_PORT || 5000;
 const app = express();
 
 // ─── Session Setup ───────────────────────────────────────────────────────────
