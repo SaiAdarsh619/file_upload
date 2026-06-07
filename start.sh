@@ -1,5 +1,3 @@
-#!/bin/bash
-
 echo "Starting backend..."
 cd backend
 npm start &
@@ -7,7 +5,7 @@ BACKEND_PID=$!
 
 echo "Starting frontend..."
 cd ../frontend
-npm run dev &
+npm run dev -- --host &
 FRONTEND_PID=$!
 
 echo ""
