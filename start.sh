@@ -1,3 +1,5 @@
+source bash ./setup.sh
+
 echo "Starting backend..."
 cd backend
 npm start &
