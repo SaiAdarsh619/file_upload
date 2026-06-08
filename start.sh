@@ -1,4 +1,4 @@
-source bash ./setup.sh
+source ./setup.sh
 
 echo "Starting backend..."
 cd backend
