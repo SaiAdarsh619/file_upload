@@ -5,10 +5,9 @@ WORKDIR /app
 
 COPY . .
 
-RUN chmod +x setup.sh start.sh
-RUN bash ./setup.sh
+RUN bash ./start.sh
 
-ENV PORT=8000
+ENV PORT=443
 
 EXPOSE ${PORT}
 
